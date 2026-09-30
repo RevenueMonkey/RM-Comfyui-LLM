@@ -282,7 +282,7 @@ class RMLLM:
         if credential_source not in {"Environment variable", "Masked session key"}:
             raise RMError("credential_source must be Environment variable or Masked session key.")
         if credential_source == "Masked session key" and not key_ticket:
-            raise RMError("Enter a masked API key and click Use key before queueing this node.")
+            raise RMError("Enter a masked API key and click Set before queueing this node.")
         key = consume_key(provider, key_ticket, api_key_env)
         try:
             parameters = json.loads(parameters_json)
@@ -290,7 +290,7 @@ class RMLLM:
             raise RMError("Model settings are not valid JSON.") from None
         if console_output:
             logging.info("[RM-LLM] Checking %s model capabilities.", provider)
-        caps = await interruptible(model_capabilities(provider, model_name))
+        caps = await interruptible(model_capabilities(provider, model_name, key=key))
         parameters = merge_connected_parameters(parameters, connected_parameters, caps)
         body = build_body(provider, model_name, endpoint, caps, system_prompt, user_prompt, parameters, image, video)
         body["stream"] = console_output

@@ -331,7 +331,7 @@ async def fetch_catalog(provider, key=""):
     return [{"id": m["id"], "name": m.get("name", m["id"]), "available_on_current_plan": m.get("available_on_current_plan")} for m in sorted(models.values(), key=lambda m: m["id"].casefold())]
 
 
-async def model_capabilities(provider, model, refresh=False):
+async def model_capabilities(provider, model, refresh=False, key=""):
     base, _ = provider_info(provider)
     if not isinstance(model, str) or not model or len(model) > 512 or any(ord(c) < 32 for c in model):
         raise RMError("Select a model from the catalog.")
@@ -343,7 +343,7 @@ async def model_capabilities(provider, model, refresh=False):
     records = read_records()[provider]
     encoded = quote(model, safe="/")
     if provider == "OpenRouter":
-        raw = (await request_json(base + "/models/" + encoded + "/endpoints"))["data"]
+        raw = (await request_json(base + "/models/" + encoded + "/endpoints", key))["data"]
         modalities = raw.get("architecture", {}).get("input_modalities", ["text"])
         endpoints = []
         for endpoint in raw.get("endpoints", []):
@@ -360,7 +360,7 @@ async def model_capabilities(provider, model, refresh=False):
             raise RMError("This model does not produce LLM text through chat completions.")
         source = "Live OpenRouter model endpoints"
     elif provider == "LithosAI":
-        raw = await request_json(base + "/models/" + encoded)
+        raw = await request_json(base + "/models/" + encoded, key)
         raw = raw.get("data", raw)
         params = list(records["parameters"])
         modalities = ["text"]
@@ -370,7 +370,7 @@ async def model_capabilities(provider, model, refresh=False):
                       "pricing": raw.get("pricing")}]
         source = "LithosAI OpenAI-compatible API; model metadata and availability are live"
     else:
-        raw = await request_json(base + "/models/" + encoded)
+        raw = await request_json(base + "/models/" + encoded, key)
         raw = raw.get("data", raw)
         features = raw.get("features") or {}
         modalities = list(raw.get("input_modalities") or ["text"])
@@ -390,7 +390,7 @@ async def model_capabilities(provider, model, refresh=False):
         definitions[name] = records["parameters"].get(name, {"description": "Advertised by the endpoint. Enter its value as JSON; provider-specific limits apply."})
     result = {"provider": provider, "model": model, "input_modalities": modalities, "endpoints": endpoints, "parameters": definitions, "source": source, "documentation": records["source"], "record_updated": records["refreshed_at"]}
     if provider == "OpenRouter" and "reasoning" in definitions:
-        catalog = await request_json(base + "/models")
+        catalog = await request_json(base + "/models", key)
         metadata = next((item.get("reasoning") for item in catalog.get("data", []) if item.get("id") == model), None)
         if isinstance(metadata, dict):
             result["reasoning_options"] = metadata
@@ -438,7 +438,8 @@ async def api_request(request):
             key = session_key(provider, data["session"]) if data.get("session") else environment_key(provider, data.get("env_name", ""))
             result = {"models": await fetch_catalog(provider, key)}
         elif action == "capabilities":
-            result = await model_capabilities(provider, data.get("model", ""), refresh=True)
+            key = session_key(provider, data["session"]) if data.get("session") else environment_key(provider, data.get("env_name", ""), required=True)
+            result = await model_capabilities(provider, data.get("model", ""), refresh=True, key=key)
         elif action == "refresh":
             result = await refresh_records(provider)
         else:

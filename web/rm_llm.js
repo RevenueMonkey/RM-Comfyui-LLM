@@ -570,7 +570,7 @@ async function loadCapabilities(state) {
     syncSockets(state);
     note(state, "Discovering model capabilities…");
     try {
-        const caps = await call("capabilities", { provider, model });
+        const caps = await call("capabilities", { ...selection(state), provider, model });
         if (state.revision !== revision) return;
         state.caps = caps;
         if (state.v2) state.lastRefreshed.textContent = `Last refreshed: ${new Date().toLocaleString()}`;
