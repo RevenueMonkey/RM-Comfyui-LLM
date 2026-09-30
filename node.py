@@ -15,7 +15,6 @@ from comfy_api.latest import VideoContainer, VideoCodec
 from .service import RMError, ProviderHTTPError, consume_key, model_capabilities, provider_info, request_json, read_records, DETAILS, LOCK
 from .streaming import request_stream
 from .template_options import FIELDS as TEMPLATE_FIELDS, PREFIX as TEMPLATE_PREFIX
-from .agent import AgentRequest
 
 MEDIA_LIMIT = 48 * 1024 * 1024
 RESERVED_INPUTS = {"provider", "model", "models", "messages", "stream", "stream_options", "route", "model_name", "endpoint", "api_key_env", "credential_source", "system_prompt", "user_prompt", "parameters_json", "timeout_seconds", "image", "video", "key_ticket", "console_output"}
@@ -362,6 +361,9 @@ class RMLLMV2(RMLLM):
             parameters.update(creativity_to_sampling(creativity))
             parameters_json = json.dumps(parameters)
         if agent_request is not None:
+            # Import lazily: agent.py uses helpers from this module, so a
+            # module-level import would prevent RM-LLM from loading at startup.
+            from .agent import AgentRequest
             if kwargs["provider"] != "OpenRouter":
                 raise RMError("The existing tool-conversation transport supports OpenRouter. Ordinary RM-LLM requests still support the other providers.")
             if kwargs["credential_source"] != "Environment variable":
