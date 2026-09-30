@@ -1,5 +1,4 @@
-from .node_v2 import RMLLMV2
-from .node_v3 import RMLLMV3
+from .node import RMLLMV2, RMLLMV3
 from .agent import AgentProfile, AgentRequest
 from .service import register_routes
 
