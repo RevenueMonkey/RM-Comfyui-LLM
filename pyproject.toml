@@ -12,4 +12,4 @@ Documentation = "https://github.com/RevenueMonkey/RM-Comfyui-LLM#readme"
 "Bug Tracker" = "https://github.com/RevenueMonkey/RM-Comfyui-LLM/issues"
 
 [tool.comfy]
-DisplayName = "RM-ComfyUI-LLM"
+DisplayName = "RM-ComfyUI-LLM 0.3.0"
