@@ -73,7 +73,7 @@ The included **Start-RM-LLM.ps1** reads existing process environment variables u
 It prompts securely for any missing keys, sets them only in the launcher's process environment, and starts the portable Python. Stop your existing ComfyUI before using this launcher:
 
 ```powershell
-powershell -NoProfile -File C:\ComfyUI_A\ComfyUI\custom_nodes\RM-LLM\Start-RM-LLM.ps1
+powershell -NoProfile -File <ComfyUI root>\ComfyUI\custom_nodes\RM-LLM\Start-RM-LLM.ps1
 ```
 
 **Masked session key:** Select this source, paste the key, and click **Use key**. The field is cleared after submission. The key stays only in server memory, expiring after 12 hours or server restart. The browser holds an opaque session reference in memory, not localStorage, workflow JSON, or node properties. Each queue action obtains a separate, single-use credential ticket; queue/history contain only that ticket, never the key. Used tickets cannot be reused. Unused queued tickets expire after 24 hours. Clearing a key stops new tickets; tickets already issued for queued requests remain usable. Reloading a page requires re-entry. This mode is supported for nodes on the main canvas; subgraphs and headless API clients should use environment variables.
@@ -87,7 +87,7 @@ Only text-producing chat-completion models can execute. Other catalog entries re
 Run offline regression checks with:
 
 ```powershell
-C:\ComfyUI_A\python_embeded\python.exe -s C:\ComfyUI_A\ComfyUI\custom_nodes\RM-LLM\tests\test_rm_llm.py
+<ComfyUI root>\python_embeded\python.exe -s <ComfyUI root>\ComfyUI\custom_nodes\RM-LLM\tests\test_rm_llm.py
 ```
 
 Sources: [OpenRouter models](https://openrouter.ai/docs/guides/overview/models), [OpenRouter schema](https://openrouter.ai/openapi.json), [provider routing](https://openrouter.ai/docs/guides/routing/provider-selection), [video inputs](https://openrouter.ai/docs/guides/overview/multimodal/videos), [Featherless models](https://featherless.ai/docs/api-reference-models), [completion parameters](https://featherless.ai/docs/completions), [vision](https://featherless.ai/docs/vision), [chat template kwargs](https://featherless.ai/docs/chat-template-kwargs), [LithosAI API](https://docs.lithosai.com/), [LithosAI authentication](https://docs.lithosai.com/authentication), and [LithosAI OpenAPI schema](https://docs.lithosai.com/openapi.yaml).
