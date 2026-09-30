@@ -178,16 +178,21 @@ def validate_parameters(parameters, caps, endpoint):
 def build_body(provider, model, endpoint, caps, system_prompt, user_prompt, parameters, image=None, video=None):
     parameters = validate_parameters(parameters, caps, endpoint)
     modalities = caps["input_modalities"]
-    if image is not None and "image" not in modalities:
-        raise RMError("This model does not advertise image input. Disconnect image or select a vision model.")
-    if video is not None and (provider != "OpenRouter" or "video" not in modalities):
-        raise RMError("This model/provider does not advertise native video input. Disconnect video or select a video-capable OpenRouter model.")
+    image_supported = image is not None and "image" in modalities
+    video_supported = video is not None and provider == "OpenRouter" and "video" in modalities
+    # Keep a connected media socket stable when a model is changed.  The
+    # frontend marks that socket N/A, and the request remains a valid text
+    # request with the unsupported media omitted.
+    if image is not None and not image_supported:
+        logging.warning("[RM-LLM] Image input is connected but unsupported by %s/%s; omitting it.", provider, model)
+    if video is not None and not video_supported:
+        logging.warning("[RM-LLM] Video input is connected but unsupported by %s/%s; omitting it.", provider, model)
     merge_system = provider == "Featherless" and caps.get("system_role_rejected") is True
     user_content = system_prompt + "\n\n" + user_prompt if merge_system and system_prompt else user_prompt
     content = [{"type": "text", "text": user_content}]
-    if image is not None:
+    if image_supported:
         content.extend(image_parts(image))
-    if video is not None:
+    if video_supported:
         content.append(video_part(video))
     messages = []
     if system_prompt and not merge_system:

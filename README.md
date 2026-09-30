@@ -41,7 +41,7 @@ For persistent use, set the environment variable outside ComfyUI before starting
 
 1. Select a provider and model.
 2. Enter a system prompt and user prompt.
-3. Connect an image or video only when the selected model advertises that input.
+3. Connect an image or video when the selected model advertises that input. If a model change leaves an existing media connection unsupported, RM-LLM labels it **N/A**, mutes its socket, and omits that media from the request while continuing with text.
 4. Adjust **Creativity**, **Thinking/Reasoning**, or model-specific controls.
 5. Enable **Live console output** when you want streamed text and reasoning printed as it arrives.
 6. Queue the workflow.

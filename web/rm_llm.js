@@ -44,6 +44,7 @@ css.textContent = `
 .rm-widget-row.rm-compact > :not(label) { display:none; }
 .rm-widget-row .rm-default { margin-left:auto; font-size:11px; padding:3px 6px; }
 .rm-widget-row > label { margin:0; line-height:20px; min-height:20px; }
+.rm-widget-row > label.rm-media-unavailable { color:#888; }
 .rm-widget-row > textarea { flex:1; min-height:40px; resize:none; }
 .rm-widget-row .rm-note { margin:3px 0; }
 .rm-widget-row.rm-model-limits .rm-note { font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -279,6 +280,44 @@ function bindRows(state) {
     state.node.graph?.setDirtyCanvas(true, true);
 }
 
+function syncMediaAvailability(state) {
+    const modalities = state.caps?.input_modalities || [];
+    state.mediaSlotDefaults ||= new Map();
+    for (const [name, title] of [["image", "Image"], ["video", "Video"]]) {
+        const input = state.node.inputs?.find(candidate => candidate.name === name);
+        const row = state.rows.get(name);
+        const label = row?.element.querySelector("label");
+        if (!input) continue;
+        if (!state.mediaSlotDefaults.has(name)) {
+            state.mediaSlotDefaults.set(name, {
+                color_on: input.color_on,
+                color_off: input.color_off,
+                label: input.label,
+            });
+        }
+        const unavailable = input.link != null && !modalities.includes(name);
+        const defaults = state.mediaSlotDefaults.get(name);
+        if (unavailable) {
+            input.color_on = "#777777";
+            input.color_off = "#555555";
+            if (label) {
+                label.textContent = "N/A";
+                label.title = `${title} input is unavailable for the selected model; the connection will be ignored.`;
+                label.classList.add("rm-media-unavailable");
+            }
+        } else {
+            input.color_on = defaults.color_on;
+            input.color_off = defaults.color_off;
+            if (label) {
+                label.textContent = title;
+                label.title = "";
+                label.classList.remove("rm-media-unavailable");
+            }
+        }
+    }
+    state.node.graph?.setDirtyCanvas(true, true);
+}
+
 function mountParameterRows(state) {
     for (const name of state.parameterRows) {
         state.node.removeWidget(state.rows.get(name));
@@ -326,6 +365,7 @@ function syncSockets(state) {
         } else if (index >= 0 && state.node.inputs[index].link == null) state.node.removeInput(index);
     }
     bindRows(state);
+    syncMediaAvailability(state);
 }
 
 function syncConnectedControls(state) {
