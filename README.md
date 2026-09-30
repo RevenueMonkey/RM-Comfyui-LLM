@@ -1,8 +1,8 @@
-# RM-ComfyUI-LLM 0.3.0
+# RM-ComfyUI-LLM 0.3.1
 
-**Version:** 0.3.0  
+**Version:** 0.3.1  
 **Node:** `RM_LLM_V3`  
-**Display name:** RM-LLM 0.3.0
+**Display name:** RM-LLM 0.3.1
 **Category:** `RM/API`
 
 A lightweight ComfyUI node for calling OpenRouter, Featherless, and LithosAI chat models. It supports live model discovery, model-specific controls, text prompts, supported image/video inputs, reasoning/thinking controls, streaming console output, and ComfyUI input connections.
@@ -15,7 +15,7 @@ Copy this folder into:
 ComfyUI/custom_nodes/RM-Comfyui-LLM
 ```
 
-Restart ComfyUI and refresh the browser. The node is available under **RM/API → RM-LLM 0.3.0**.
+Restart ComfyUI and refresh the browser. The node is available under **RM/API → RM-LLM 0.3.1**.
 
 The package uses dependencies already provided by ComfyUI. It does not download models or install Python packages.
 
@@ -33,7 +33,7 @@ Click **Model Name** to download the provider's current model catalog. Select a 
 
 The node reads the key from the selected environment variable. Keys are never written to workflows.
 
-RM-LLM 0.3.0 has one masked API-key field and a **Set** button. **API Key System** controls the destination: **Environment variable** places it in the running ComfyUI process without administrator or `sudo` access; **Masked session key** keeps it only in server memory for the current session. The key is not written to disk or saved in workflows. Environment setup must be repeated after restarting ComfyUI.
+RM-LLM 0.3.1 has one masked API-key field and a **Set** button. **API Key System** controls the destination: **Environment variable** places it in the running ComfyUI process without administrator or `sudo` access; **Masked session key** keeps it only in server memory for the current session. The key is not written to disk or saved in workflows. Environment setup must be repeated after restarting ComfyUI.
 
 For persistent use, set the environment variable outside ComfyUI before starting it. The variable name can be changed in the node's **API Key System** section.
 
@@ -71,7 +71,7 @@ LithosAI currently reports text-only input because its published API documentati
 
 The node is designed for current ComfyUI installations with the standard `aiohttp`, NumPy, Pillow, PyTorch, and ComfyUI video APIs. The included PowerShell launcher is optional and Windows-specific; the node itself uses relative paths and environment variables.
 
-`RM_LLM_V2` remains registered as a legacy node for existing v2 workflows. New workflows should use `RM_LLM_V3` (displayed as **RM-LLM 0.3.0**).
+`RM_LLM_V2` remains registered as a legacy node for existing v2 workflows. New workflows should use `RM_LLM_V3` (displayed as **RM-LLM 0.3.1**).
 
 ## License
 
