@@ -84,21 +84,13 @@ Masked key entry requires localhost or HTTPS. Credentials are sent only to the s
 
 Only text-producing chat-completion models can execute. Other catalog entries remain discoverable but report an unsupported endpoint/output error. Additional output data remains in response_json. Image/video encoding has a 48 MiB limit; provider limits may be lower. VIDEO is encoded as MP4/H.264 through ComfyUI's video interface and preserves the active trim/audio behavior of that interface. No image resizing, frame sampling, or silent text-only fallback is performed.
 
-Run offline regression checks with:
-
-```powershell
-<ComfyUI root>\python_embeded\python.exe -s <ComfyUI root>\ComfyUI\custom_nodes\RM-LLM\tests\test_rm_llm.py
-```
-
 Sources: [OpenRouter models](https://openrouter.ai/docs/guides/overview/models), [OpenRouter schema](https://openrouter.ai/openapi.json), [provider routing](https://openrouter.ai/docs/guides/routing/provider-selection), [video inputs](https://openrouter.ai/docs/guides/overview/multimodal/videos), [Featherless models](https://featherless.ai/docs/api-reference-models), [completion parameters](https://featherless.ai/docs/completions), [vision](https://featherless.ai/docs/vision), [chat template kwargs](https://featherless.ai/docs/chat-template-kwargs), [LithosAI API](https://docs.lithosai.com/), [LithosAI authentication](https://docs.lithosai.com/authentication), and [LithosAI OpenAPI schema](https://docs.lithosai.com/openapi.yaml).
 
 Frontend layout uses ComfyUI DOM widgets and widget/input bindings: [ComfyUI widget documentation](https://docs.comfy.org/custom-nodes/js/javascript_objects_and_hijacking). RM-LLM v2's model heading is a resizable DOM text row above the model limits, without a background box. Section visibility is published through both `hidden` and `options.hidden` for canvas and Nodes 2.0, with CSS minimum heights for DOM rendering. A narrowly scoped CSS rule makes this node's Nodes 2.0 input sockets visible without hovering; that selector remains dependent on the frontend's DOM markup. The extension no longer changes private slot arrays or private layout flags. Imports are relative to the extension directory, including when ComfyUI is served under a URL prefix.
 
-The September 18 portability repair passes 42 backend tests and `tests/test_frontend_portability.mjs`, which checks renderer visibility contracts and connection preservation using a simulated frontend. Full visual validation in both renderers is still pending: launching the automated browser was blocked by the execution policy. Existing browser checks in `tests/browser_v2_check.mjs` have been updated for the DOM heading but were not rerun for this repair. These checks do not establish compatibility with every frontend version, browser, or subgraph configuration.
-
 To update another computer, stop ComfyUI there and replace the files in its existing `custom_nodes/RM-LLM` directory with the updated package, then start ComfyUI and hard-refresh the browser (Ctrl+F5). Copy the node package, not this installation's Python environment or browser profiles. No package installation or saved-workflow edits are required. Masked session keys must be re-entered after a browser reload/server restart.
 
-When RM-LLM feeds Easy Use's Show Anything, its replacement text widget is laid out after every result. This avoids a blank output caused by the widget retaining zero size or an off-canvas position in frontend 1.49.6. The hook applies only to Show Anything nodes connected directly to RM-LLM; it does not alter saved workflows or Easy Use files. `tests/browser_display_check.mjs` verifies the saved RM-LLM workflow's first and repeated output displays without queueing a generation.
+When RM-LLM feeds Easy Use's Show Anything, its replacement text widget is laid out after every result. This avoids a blank output caused by the widget retaining zero size or an off-canvas position in frontend 1.49.6. The hook applies only to Show Anything nodes connected directly to RM-LLM; it does not alter saved workflows or Easy Use files.
 
 Streaming references: [OpenRouter SSE](https://openrouter.ai/docs/api_reference/streaming), [Featherless streaming example](https://featherless.ai/docs/litellm), and LithosAI's OpenAI-compatible streaming schema in its [OpenAPI document](https://docs.lithosai.com/openapi.yaml). The implementation uses the existing aiohttp dependency.
 
