@@ -33,7 +33,7 @@ Click **Model Name** to download the provider's current model catalog. Select a 
 
 The node reads the key from the selected environment variable. Keys are never written to workflows.
 
-RM-LLM 0.3.0 also has a masked key field. **Use key** keeps the key in server memory for the current session. **Set environment variable** places it in the running ComfyUI process without administrator or `sudo` access. It is not written to disk and must be repeated after restarting ComfyUI.
+RM-LLM 0.3.0 has one masked API-key field and a **Set** button. **API Key System** controls the destination: **Environment variable** places it in the running ComfyUI process without administrator or `sudo` access; **Masked session key** keeps it only in server memory for the current session. The key is not written to disk or saved in workflows. Environment setup must be repeated after restarting ComfyUI.
 
 For persistent use, set the environment variable outside ComfyUI before starting it. The variable name can be changed in the node's **API Key System** section.
 

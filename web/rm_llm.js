@@ -711,52 +711,41 @@ function setup(node, nodeData) {
     const password = document.createElement("input");
     password.type = "password"; password.autocomplete = "off"; password.placeholder = "Paste API key (never saved)";
     password.setAttribute("aria-label", "API key"); password.spellcheck = false;
-    const use = element("button", "Use key");
-    const clear = element("button", "Clear key");
-    const setupEnv = element("button", "Set environment variable");
-    setupEnv.hidden = !state.v3;
-    keyRow.append(password, use, clear, setupEnv); panel.append(keyRow);
-    state.keyStatus = element("div", "No masked key stored.", "rm-note"); panel.append(state.keyStatus);
+    const setKey = element("button", "Set");
+    keyRow.append(password, setKey); panel.append(keyRow);
+    state.keyStatus = element("div", "Enter a key and click Set.", "rm-note"); panel.append(state.keyStatus);
     const updateMode = () => {
-        keyRow.hidden = state.mode.value !== "Masked session key";
+        keyRow.hidden = false;
         const row = state.rows.get("section_0");
         if (row) layoutSections(state);
         state.env.disabled = state.mode.value === "Masked session key" || connected(node, "api_key_env");
         const hasKey = state.sessions[state.provider.value];
-        state.keyStatus.textContent = hasKey ? "Masked key held in server memory for up to 12 hours." : "No masked key stored. Reloading this page requires re-entry.";
+        state.keyStatus.textContent = state.mode.value === "Masked session key"
+            ? (hasKey ? "Masked key held in server memory for up to 12 hours." : "No masked key stored. Reloading this page requires re-entry.")
+            : "Set a key to the selected environment variable in the running ComfyUI process.";
     };
     state.mode.onchange = () => { setValue(node, "credential_source", state.mode.value); updateMode(); };
-    use.onclick = async () => {
+    setKey.onclick = async () => {
         const provider = state.provider.value;
-        use.disabled = true;
+        setKey.disabled = true;
         try {
             const old = state.sessions[provider];
-            const result = await call("key", { provider, key: password.value });
-            password.value = "";
-            state.sessions[provider] = result.session;
-            if (old) await call("key", { provider, session: old, clear: true });
-            updateMode(); note(state, "Key stored in server memory. It has not been used for a paid request.");
-        } catch (error) { note(state, error.message, true); }
-        finally { use.disabled = false; }
-    };
-    setupEnv.onclick = async () => {
-        const provider = state.provider.value;
-        const envName = value(node, "api_key_env") || defaults[provider];
-        setupEnv.disabled = true;
-        try {
-            const result = await call("set_env", { provider, env_name: envName, key: password.value });
+            if (state.mode.value === "Masked session key") {
+                const result = await call("key", { provider, key: password.value });
+                state.sessions[provider] = result.session;
+                if (old) await call("key", { provider, session: old, clear: true });
+                note(state, "Masked key stored in server memory. It has not been used for a paid request.");
+            } else {
+                const envName = value(node, "api_key_env") || defaults[provider];
+                const result = await call("set_env", { provider, env_name: envName, key: password.value });
+                if (old) await call("key", { provider, session: old, clear: true });
+                delete state.sessions[provider];
+                note(state, `${result.environment_variable} set for this ComfyUI process. Restarting ComfyUI requires setting it again.`);
+            }
             password.value = "";
             updateMode();
-            note(state, `${result.environment_variable} set for this ComfyUI process. It is not saved in the workflow; restart ComfyUI to set it again.`);
         } catch (error) { note(state, error.message, true); }
-        finally { setupEnv.disabled = false; }
-    };
-    clear.onclick = async () => {
-        const provider = state.provider.value;
-        try {
-            if (state.sessions[provider]) await call("key", { provider, session: state.sessions[provider], clear: true });
-            delete state.sessions[provider]; password.value = ""; updateMode();
-        } catch (error) { note(state, error.message, true); }
+        finally { setKey.disabled = false; }
     };
     state.system = label("System Prompt", bound("system_prompt", "textarea"));
     state.user = label("User Prompt", bound("user_prompt", "textarea"));
@@ -962,7 +951,7 @@ app.registerExtension({
                 if (spec.inputs.credential_source === "Masked session key") {
                     const provider = spec.inputs.provider;
                     const session = state?.sessions[provider];
-                    if (!session) throw new Error("RM-LLM: enter a masked key and click Use key in this node before queueing. For subgraphs/API execution use environment variables.");
+                    if (!session) throw new Error("RM-LLM: enter a masked key and click Set in this node before queueing. For subgraphs/API execution use environment variables.");
                     const result = await call("ticket", { provider, session });
                     spec.inputs.key_ticket = result.ticket;
                 }
