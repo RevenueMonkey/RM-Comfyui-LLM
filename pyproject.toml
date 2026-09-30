@@ -1,0 +1,15 @@
+[project]
+name = "rm-comfyui-llm"
+description = "ComfyUI LLM nodes for OpenRouter, Featherless, and LithosAI."
+version = "0.3.0"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/RevenueMonkey/RM-Comfyui-LLM"
+Documentation = "https://github.com/RevenueMonkey/RM-Comfyui-LLM#readme"
+"Bug Tracker" = "https://github.com/RevenueMonkey/RM-Comfyui-LLM/issues"
+
+[tool.comfy]
+DisplayName = "RM-ComfyUI-LLM"
