@@ -215,7 +215,7 @@ function layoutSections(state, fit = false) {
             button.setAttribute("aria-expanded", String(open));
             continue;
         }
-        const unavailable = (name === "section_0" || state.v2 && name === "section_1") && value(node, "credential_source") !== "Masked session key" || ["image", "video"].includes(name) && !node.inputs?.some(i => i.name === name) || state.v2 && name === "api_key_env" && !connected(node, name) || state.v2 && name === "section_4" && !state.status.classList.contains("rm-error");
+        const unavailable = state.v2 && name === "section_1" && value(node, "credential_source") !== "Masked session key" || ["image", "video"].includes(name) && !node.inputs?.some(i => i.name === name) || state.v2 && name === "api_key_env" && !connected(node, name) || state.v2 && name === "section_4" && !state.status.classList.contains("rm-error");
         const folded = !topRows.includes(name) && sections[section] === false;
         setRowHidden(row, unavailable || folded && !connected(node, name));
         row.rmCompact = !row.hidden && (folded || state.v2 && name === "api_key_env");
