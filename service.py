@@ -32,6 +32,7 @@ TICKETS = {}
 SESSION_TTL = 12 * 3600
 TICKET_TTL = 24 * 3600
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+MISSING_API_KEY_ERROR = "API Key Needed!"
 
 
 class RMError(ValueError):
@@ -114,7 +115,7 @@ def environment_key(provider, name="", required=False):
     if key and (len(key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in key)):
         raise RMError("The API-key environment variable contains an invalid credential value.")
     if required and not key:
-        raise RMError(f"{name} is not set in the ComfyUI process. Use the masked key field or the supplied launcher.")
+        raise RMError(MISSING_API_KEY_ERROR)
     return key
 
 

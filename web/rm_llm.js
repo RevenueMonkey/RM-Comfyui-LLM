@@ -991,7 +991,7 @@ app.registerExtension({
                 if (spec.inputs.credential_source === "Masked session key") {
                     const provider = spec.inputs.provider;
                     const session = state?.sessions[provider];
-                    if (!session) throw new Error("RM-LLM: enter a masked key and click Set in this node before queueing. For subgraphs/API execution use environment variables.");
+                    if (!session) throw new Error("RM-LLM: API Key Needed!");
                     const result = await call("ticket", { provider, session });
                     spec.inputs.key_ticket = result.ticket;
                 }
