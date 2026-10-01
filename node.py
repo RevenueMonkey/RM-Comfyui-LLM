@@ -402,7 +402,7 @@ class RMLLMV2(RMLLM):
 
 
 class RMLLMV3(RMLLMV2):
-    """Current RM-LLM 0.3.1 node with LithosAI enabled."""
+    """Current RM-LLM 0.3.2 node with LithosAI enabled."""
 
     DESCRIPTION = (
         "OpenRouter, Featherless, and LithosAI LLM calls with live model discovery, "

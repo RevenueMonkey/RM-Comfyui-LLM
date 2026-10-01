@@ -16,6 +16,9 @@ css.textContent = `
 .rm-llm .rm-row > input:not([type=checkbox]) { min-width:0; flex:1; }
 .rm-llm .rm-note { color:#b7bac1; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; margin:7px 0; }
 .rm-llm .rm-error { color:#ffb5a8; }
+.rm-llm .rm-key-status-ready { border-color:#35b56a; background:#194d2d; }
+.rm-llm .rm-key-status-missing { border-color:#d45b5b; background:#542424; }
+.rm-llm .rm-key-status-unknown { border-color:#777; }
 .rm-llm .rm-controls { border-top:1px solid #555; padding-top:5px; }
 .rm-llm .rm-param { border-bottom:1px solid #444; padding:3px 0 7px; }
 .rm-llm .rm-param label { display:flex; gap:5px; align-items:center; }
@@ -754,6 +757,31 @@ function setup(node, nodeData) {
     const setKey = element("button", "Set");
     keyRow.append(password, setKey); panel.append(keyRow);
     state.keyStatus = element("div", "Enter a key and click Set.", "rm-note"); panel.append(state.keyStatus);
+    const setKeyStatus = (status) => {
+        setKey.classList.remove("rm-key-status-ready", "rm-key-status-missing", "rm-key-status-unknown");
+        setKey.classList.add(`rm-key-status-${status}`);
+        setKey.setAttribute("aria-label", status === "ready" ? "API key available" : status === "missing" ? "API key needed" : "API key status unknown");
+    };
+    const refreshCredentialStatus = async () => {
+        const provider = state.provider.value;
+        const revision = state.revision;
+        setKeyStatus("unknown");
+        try {
+            const result = await call("credential_status", {
+                provider,
+                env_name: value(node, "api_key_env"),
+                session: state.mode.value === "Masked session key" ? state.sessions[provider] : undefined,
+            });
+            if (revision !== state.revision) return;
+            setKeyStatus(result.key_present ? "ready" : "missing");
+        } catch (error) {
+            if (revision === state.revision) {
+                setKeyStatus("missing");
+                state.keyStatus.textContent = error.message;
+            }
+        }
+    };
+    state.env.addEventListener("change", () => void refreshCredentialStatus());
     const updateMode = () => {
         keyRow.hidden = false;
         const row = state.rows.get("section_0");
@@ -763,6 +791,7 @@ function setup(node, nodeData) {
         state.keyStatus.textContent = state.mode.value === "Masked session key"
             ? (hasKey ? "Masked key held in server memory for up to 12 hours." : "No masked key stored. Reloading this page requires re-entry.")
             : "Set a key to the selected environment variable in the running ComfyUI process.";
+        void refreshCredentialStatus();
     };
     state.mode.onchange = () => { setValue(node, "credential_source", state.mode.value); updateMode(); };
     setKey.onclick = async () => {

@@ -432,7 +432,17 @@ async def api_request(request):
                 result = {"session": store_session(provider, data.get("key")), "expires_in": SESSION_TTL}
         elif action == "set_env":
             name = set_process_environment_key(provider, data.get("env_name", ""), data.get("key"))
-            result = {"environment_variable": name}
+            result = {"environment_variable": name, "key_present": True}
+        elif action == "credential_status":
+            if data.get("session"):
+                try:
+                    session_key(provider, data["session"])
+                except RMError:
+                    result = {"key_present": False}
+                else:
+                    result = {"key_present": True}
+            else:
+                result = {"key_present": bool(environment_key(provider, data.get("env_name", "")))}
         elif action == "ticket":
             result = {"ticket": issue_ticket(provider, data.get("session", ""))}
         elif action == "models":

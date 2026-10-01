@@ -4,7 +4,7 @@ from .service import register_routes
 
 register_routes()
 NODE_CLASS_MAPPINGS = {"RM_LLM_V2": RMLLMV2, "RM_LLM_V3": RMLLMV3, "RMLLMAgentProfile": AgentProfile, "RMLLMAgentRequest": AgentRequest}
-NODE_DISPLAY_NAME_MAPPINGS = {"RM_LLM_V2": "RM-LLM v2 (legacy)", "RM_LLM_V3": "RM-LLM 0.3.1", "RMLLMAgentProfile": "Agent Model Profile", "RMLLMAgentRequest": "Agent Request"}
+NODE_DISPLAY_NAME_MAPPINGS = {"RM_LLM_V2": "RM-LLM v2 (legacy)", "RM_LLM_V3": "RM-LLM 0.3.2", "RMLLMAgentProfile": "Agent Model Profile", "RMLLMAgentRequest": "Agent Request"}
 WEB_DIRECTORY = "./web"
 
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS", "WEB_DIRECTORY"]
