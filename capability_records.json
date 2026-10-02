@@ -832,7 +832,7 @@
   },
   "Featherless": {
     "source": "https://featherless.ai/docs/completions",
-    "refreshed_at": "2026-09-15T11:52:46Z",
+    "refreshed_at": "2026-10-02T13:25:58Z",
     "parameters": {
       "presence_penalty": {
         "type": "number",
@@ -973,25 +973,90 @@
     "source": "https://docs.lithosai.com/openapi.yaml",
     "refreshed_at": "2026-09-30T00:00:00Z",
     "parameters": {
-      "max_tokens": {"type": "integer", "description": "Maximum number of output tokens."},
-      "max_completion_tokens": {"type": "integer", "description": "OpenAI-compatible alias for the output token limit."},
-      "temperature": {"type": "number", "description": "Sampling temperature from 0 to 2."},
-      "top_p": {"type": "number", "description": "Nucleus sampling value from 0 to 1."},
-      "top_k": {"type": "integer", "description": "LithosAI non-standard top-k sampling control."},
-      "n": {"type": "integer", "description": "Number of choices. LithosAI Kimi K3 requires 1."},
-      "stop": {"type": ["string", "array", "null"], "description": "Stop string or list of stop strings."},
-      "presence_penalty": {"type": "number", "description": "Presence penalty from -2 to 2."},
-      "frequency_penalty": {"type": "number", "description": "Frequency penalty from -2 to 2."},
-      "seed": {"type": "integer", "description": "Optional deterministic sampling seed."},
-      "logprobs": {"type": "boolean", "description": "Return token log probabilities when supported."},
-      "top_logprobs": {"type": "integer", "description": "Number of alternative token log probabilities."},
-      "logit_bias": {"type": "object", "description": "Token ID to bias mapping."},
-      "response_format": {"type": "object", "description": "OpenAI-compatible response format object."},
-      "reasoning_effort": {"type": "string", "description": "Model-specific reasoning effort."},
-      "tools": {"type": "array", "description": "OpenAI-compatible tool definitions."},
-      "tool_choice": {"type": ["string", "object", "null"], "description": "Tool selection policy."},
-      "user": {"type": "string", "description": "Optional end-user identifier."},
-      "stream_options": {"type": "object", "description": "Streaming options, including include_usage."}
+      "max_tokens": {
+        "type": "integer",
+        "description": "Maximum number of output tokens."
+      },
+      "max_completion_tokens": {
+        "type": "integer",
+        "description": "OpenAI-compatible alias for the output token limit."
+      },
+      "temperature": {
+        "type": "number",
+        "description": "Sampling temperature from 0 to 2."
+      },
+      "top_p": {
+        "type": "number",
+        "description": "Nucleus sampling value from 0 to 1."
+      },
+      "top_k": {
+        "type": "integer",
+        "description": "LithosAI non-standard top-k sampling control."
+      },
+      "n": {
+        "type": "integer",
+        "description": "Number of choices. LithosAI Kimi K3 requires 1."
+      },
+      "stop": {
+        "type": [
+          "string",
+          "array",
+          "null"
+        ],
+        "description": "Stop string or list of stop strings."
+      },
+      "presence_penalty": {
+        "type": "number",
+        "description": "Presence penalty from -2 to 2."
+      },
+      "frequency_penalty": {
+        "type": "number",
+        "description": "Frequency penalty from -2 to 2."
+      },
+      "seed": {
+        "type": "integer",
+        "description": "Optional deterministic sampling seed."
+      },
+      "logprobs": {
+        "type": "boolean",
+        "description": "Return token log probabilities when supported."
+      },
+      "top_logprobs": {
+        "type": "integer",
+        "description": "Number of alternative token log probabilities."
+      },
+      "logit_bias": {
+        "type": "object",
+        "description": "Token ID to bias mapping."
+      },
+      "response_format": {
+        "type": "object",
+        "description": "OpenAI-compatible response format object."
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "description": "Model-specific reasoning effort."
+      },
+      "tools": {
+        "type": "array",
+        "description": "OpenAI-compatible tool definitions."
+      },
+      "tool_choice": {
+        "type": [
+          "string",
+          "object",
+          "null"
+        ],
+        "description": "Tool selection policy."
+      },
+      "user": {
+        "type": "string",
+        "description": "Optional end-user identifier."
+      },
+      "stream_options": {
+        "type": "object",
+        "description": "Streaming options, including include_usage."
+      }
     }
   }
 }

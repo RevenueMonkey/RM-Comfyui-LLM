@@ -119,10 +119,32 @@ function connected(node, name) {
     return node.inputs?.some(input => input.name === name && input.link != null) ?? false;
 }
 
+function connectedStaticString(node, name) {
+    try {
+        const input = node.inputs?.find(candidate => candidate.name === name);
+        const linkId = input?.link;
+        if (linkId == null) return undefined;
+        let link = linkId;
+        if (typeof linkId !== "object") {
+            const links = node.graph?.links;
+            link = node.graph?.getLinkById?.(linkId)
+                || (links instanceof Map ? links.get(linkId) : links?.[linkId])
+                || node.graph?._links?.[linkId];
+        }
+        const origin = link && node.graph?.getNodeById?.(link.origin_id);
+        if (!origin || !["PrimitiveString", "PrimitiveStringMultiline"].includes(origin.type)) return undefined;
+        const widget = origin.widgets?.find(candidate => candidate.name === "value") || origin.widgets?.[0];
+        const value = widget?.value ?? origin.widgets_values?.[0];
+        return typeof value === "string" ? value.trim() : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 function modelSelection(state) {
     return {
-        provider: connected(state.node, "provider") ? state.runtimeModel?.provider : value(state.node, "provider"),
-        model: connected(state.node, "model_name") ? state.runtimeModel?.model : value(state.node, "model_name"),
+        provider: connected(state.node, "provider") ? connectedStaticString(state.node, "provider") ?? state.runtimeModel?.provider : value(state.node, "provider"),
+        model: connected(state.node, "model_name") ? connectedStaticString(state.node, "model_name") ?? state.runtimeModel?.model : value(state.node, "model_name"),
     };
 }
 
@@ -132,7 +154,7 @@ function receiveModel(state, model) {
     state.runtimeModel = model;
     const after = modelSelection(state);
     state.updateModelHeading?.();
-    if (before.provider !== after.provider || before.model !== after.model) void loadCapabilities(state);
+    if (before.provider !== after.provider || before.model !== after.model || state.caps?.provider !== after.provider || state.caps?.model !== after.model) void loadCapabilities(state);
 }
 
 function executionNode(graph, id) {
@@ -292,13 +314,15 @@ function syncMediaAvailability(state) {
         const label = row?.element.querySelector("label");
         if (!input) continue;
         if (!state.mediaSlotDefaults.has(name)) {
+            // Older workflows saved our N/A colours as socket overrides.
+            // They must not become the normal colour when vision is available.
             state.mediaSlotDefaults.set(name, {
-                color_on: input.color_on,
-                color_off: input.color_off,
+                color_on: input.color_on === "#777777" ? undefined : input.color_on,
+                color_off: input.color_off === "#555555" ? undefined : input.color_off,
                 label: input.label,
             });
         }
-        const unavailable = input.link != null && !modalities.includes(name);
+        const unavailable = state.caps != null && input.link != null && !modalities.includes(name);
         const defaults = state.mediaSlotDefaults.get(name);
         if (unavailable) {
             input.color_on = "#777777";
@@ -309,8 +333,10 @@ function syncMediaAvailability(state) {
                 label.classList.add("rm-media-unavailable");
             }
         } else {
-            input.color_on = defaults.color_on;
-            input.color_off = defaults.color_off;
+            if (defaults.color_on === undefined) delete input.color_on;
+            else input.color_on = defaults.color_on;
+            if (defaults.color_off === undefined) delete input.color_off;
+            else input.color_off = defaults.color_off;
             if (label) {
                 label.textContent = title;
                 label.title = "";
@@ -639,12 +665,18 @@ async function chooseModel(state) {
     search.placeholder = "Search all model IDs and names…"; search.setAttribute("aria-label", "Search models");
     const status = element("p", "Fetching the full live catalog…");
     const list = element("div", undefined, "rm-list");
-    dialog.append(title, close, search, status, list);
+    const manual = element("button", "Use entered model ID");
+    manual.title = "Use the text in the search box as a model ID without waiting for catalog discovery.";
+    dialog.append(title, close, search, manual, status, list);
     document.body.append(dialog);
     close.onclick = () => dialog.close();
     dialog.addEventListener("close", () => dialog.remove(), { once: true });
     dialog.showModal(); search.focus();
     let models = state.models[provider] || [];
+    const currentModel = String(modelSelection(state).model || "").trim();
+    if (currentModel && !models.some(model => model.id === currentModel)) {
+        models = [{ id: currentModel, name: currentModel }, ...models];
+    }
     let loadError = "";
     const render = () => {
         const q = search.value.toLocaleLowerCase().trim();
@@ -669,12 +701,25 @@ async function chooseModel(state) {
         }
     };
     search.oninput = render;
+    manual.onclick = () => {
+        const model = search.value.trim();
+        if (!model || provider !== value(state.node, "provider")) return;
+        if (model !== value(state.node, "model_name")) {
+            setValue(state.node, "parameters_json", "{}");
+            setValue(state.node, "endpoint", "Auto");
+        }
+        setValue(state.node, "model_name", model);
+        state.model.textContent = model;
+        dialog.close();
+        void loadCapabilities(state);
+    };
     try {
         const response = await call("models", selection(state));
         models = response.models;
         state.models[provider] = models;
+        loadError = response.warning ? `${response.warning} ` : "";
     } catch (error) {
-        loadError = `${error.message}${models.length ? " Showing the previous catalog. " : " "}`;
+        loadError = `${error.message}${models.length ? " Showing the previous catalog. " : " Enter a model ID manually or try Refresh later. "}`;
     }
     if (dialog.isConnected) render();
 }
@@ -839,8 +884,9 @@ function setup(node, nodeData) {
         note(state, "Refreshing provider documentation and full model catalog…");
         try {
             await call("refresh", { provider });
-            const catalog = await call("models", { ...selection(state), provider });
+            const catalog = await call("models", { ...selection(state), provider, force: true });
             state.models[provider] = catalog.models;
+            if (catalog.warning) note(state, catalog.warning, true);
             if (provider === modelSelection(state).provider) {
                 await loadCapabilities(state);
                 if (!value(node, "model_name")) {
@@ -907,7 +953,7 @@ function setup(node, nodeData) {
         setValue(node, "endpoint", "Auto");
         state.updateModelHeading?.();
         state.provider.value = value(node, "provider");
-        state.model.textContent = value(node, "model_name") || "Click to load all models…";
+        state.model.textContent = modelSelection(state).model || "Click to load all models…";
         state.mode.value = value(node, "credential_source");
         state.env.value = value(node, "api_key_env");
         state.system.value = value(node, "system_prompt"); state.user.value = value(node, "user_prompt");

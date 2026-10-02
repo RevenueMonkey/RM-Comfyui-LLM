@@ -6,7 +6,7 @@ import time
 
 import aiohttp
 
-from .service import MAX_RESPONSE_BYTES, RMError, provider_error
+from .service import MAX_RESPONSE_BYTES, RMError, ProviderHTTPError, provider_error
 
 
 class ConsoleStream:
@@ -120,6 +120,12 @@ async def read_completion_stream(content, key, console):
             raise RMError("Provider returned an invalid streaming event.")
         if chunk.get("error"):
             detail = provider_error(200, event, key)
+            error = chunk["error"]
+            # A capacity rejection can arrive inside an HTTP 200 stream.
+            # Reuse the request layer's bounded 503 retries only before any
+            # completion choice has started; never repeat partial output.
+            if not choices and isinstance(error, dict) and error.get("code") == "capacity_exhausted":
+                raise ProviderHTTPError(503, f"Provider capacity unavailable. {str(detail).split('Provider detail: ', 1)[-1]}")
             raise RMError(f"Provider stream failed. {str(detail).split('Provider detail: ', 1)[-1]} No automatic retry was made.")
         for name, value in chunk.items():
             if name not in {"choices", "object"}:

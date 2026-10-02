@@ -3,6 +3,7 @@ import asyncio
 import copy
 import html
 import json
+import logging
 import os
 import re
 import secrets
@@ -16,6 +17,10 @@ from urllib.parse import quote, urlsplit
 import aiohttp
 from aiohttp import web
 from server import PromptServer
+try:
+    import folder_paths
+except ImportError:  # pragma: no cover - allows lightweight offline imports
+    folder_paths = None
 from .template_options import DOC_URL, discover_template_options, parse_family_records
 
 ROOT = Path(__file__).resolve().parent
@@ -27,11 +32,14 @@ PROVIDERS = {
 RECORD_PATH = ROOT / "capability_records.json"
 LOCK = threading.RLock()
 DETAILS = {}
+CATALOG_CACHE = {}
+CATALOG_STATUS = {}
 SESSIONS = {}
 TICKETS = {}
 SESSION_TTL = 12 * 3600
 TICKET_TTL = 24 * 3600
 MAX_RESPONSE_BYTES = 64 * 1024 * 1024
+CATALOG_TTL = 300
 MISSING_API_KEY_ERROR = "API Key Needed!"
 
 
@@ -227,6 +235,67 @@ def read_records():
         return json.loads(RECORD_PATH.read_text(encoding="utf-8"))
 
 
+def catalog_cache_path():
+    """Keep model catalogs in ComfyUI user data, never in the node package."""
+    getter = getattr(folder_paths, "get_user_directory", None)
+    user_dir = getter() if getter else ROOT
+    path = Path(user_dir) / "RM-LLM" / "catalog_cache.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def read_catalog_cache(provider):
+    try:
+        document = json.loads(catalog_cache_path().read_text(encoding="utf-8"))
+        models = document.get(provider) if isinstance(document, dict) else None
+        if isinstance(models, list) and all(isinstance(item, dict) and isinstance(item.get("id"), str) for item in models):
+            return models
+    except (OSError, ValueError, TypeError):
+        pass
+    return None
+
+
+def write_catalog_cache(provider, models):
+    try:
+        with LOCK:
+            path = catalog_cache_path()
+            try:
+                document = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                document = {}
+            if not isinstance(document, dict):
+                document = {}
+            document[provider] = models
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+            temporary.replace(path)
+    except OSError:
+        logging.warning("[RM-LLM] Could not save the local model catalog cache.")
+
+
+def featherless_modalities(raw):
+    """Normalize Featherless/Hugging Face vision metadata across schema variants."""
+    def values(field):
+        value = raw.get(field) or []
+        return [value] if isinstance(value, str) else value if isinstance(value, list) else []
+
+    modalities = values("input_modalities") or values("modalities") or ["text"]
+    modalities = ["image" if value.casefold() == "vision" else value.casefold() for value in modalities if isinstance(value, str)]
+    features = raw.get("features") or {}
+    capabilities = values("capabilities")
+    tasks = values("tasks")
+    tags = values("tags")
+    tokens = {str(value).casefold().replace("_", "-") for value in [*capabilities, *tasks, *tags]}
+    vision_tokens = {"vision", "vision-language", "vision-language-model", "image-input", "image-text-to-text", "image-to-text", "visual-question-answering"}
+    if (
+        raw.get("vision_supported") is True
+        or features.get("image_input") is True
+        or bool(tokens & vision_tokens)
+    ):
+        modalities.append("image")
+    return sorted({str(value).casefold() for value in modalities if value})
+
+
 async def refresh_records(provider):
     records = read_records()
     if provider == "OpenRouter":
@@ -288,10 +357,49 @@ async def refresh_records(provider):
         temporary.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         temporary.replace(RECORD_PATH)
         DETAILS.clear()
+        CATALOG_CACHE.pop(provider, None)
     return records[provider]
 
 
-async def fetch_catalog(provider, key=""):
+async def catalog_request(provider, url, key):
+    for attempt in range(3):
+        try:
+            return await request_json(url, key)
+        except ProviderHTTPError as error:
+            if provider != "Featherless" or error.status != 429 or attempt == 2:
+                raise
+            delay = error.retry_after if error.retry_after is not None else 2 * (attempt + 1)
+            delay = min(max(0.5, delay), 10.0)
+            logging.warning("[RM-LLM] Featherless catalog is rate-limited; retrying in %.1f seconds (%s/2).", delay, attempt + 1)
+            await asyncio.sleep(delay)
+
+
+async def fetch_catalog(provider, key="", force=False):
+    try:
+        return await _fetch_catalog(provider, key, force)
+    except ProviderHTTPError as error:
+        local = read_catalog_cache(provider)
+        if local and error.status == 429:
+            with LOCK:
+                CATALOG_CACHE[provider] = (time.monotonic(), local)
+                CATALOG_STATUS[provider] = {"source": "local cache", "warning": f"{provider} is rate-limiting live discovery; showing the last successful local catalog."}
+            return copy.deepcopy(local)
+        raise
+
+
+async def _fetch_catalog(provider, key="", force=False):
+    with LOCK:
+        cached = CATALOG_CACHE.get(provider)
+        if cached and not force and time.monotonic() - cached[0] < CATALOG_TTL:
+            CATALOG_STATUS[provider] = {"source": "memory cache", "warning": ""}
+            return copy.deepcopy(cached[1])
+    if not force:
+        local = read_catalog_cache(provider)
+        if local:
+            with LOCK:
+                CATALOG_CACHE[provider] = (time.monotonic(), local)
+                CATALOG_STATUS[provider] = {"source": "local cache", "warning": "Live catalog is checked only with Refresh."}
+            return copy.deepcopy(local)
     base, _ = provider_info(provider)
     url = base + ("/models?page=1&per_page=1000" if provider == "Featherless" else "/models")
     models = {}
@@ -303,7 +411,7 @@ async def fetch_catalog(provider, key=""):
         if url in seen or len(seen) >= 1000:
             raise RMError("Provider model pagination did not finish.")
         seen.add(url)
-        data = await request_json(url, key)
+        data = await catalog_request(provider, url, key)
         if not isinstance(data.get("data"), list):
             raise RMError("Provider model catalog has an unexpected format.")
         for model in data["data"]:
@@ -315,21 +423,25 @@ async def fetch_catalog(provider, key=""):
             if not isinstance(total_pages, int) or not 1 <= total_pages <= 1000:
                 raise RMError("Provider returned invalid model pagination.")
             # Featherless can return fewer than per_page items after filtering.
-            # Only total_pages determines when this catalog is complete.
-            for first in range(2, total_pages + 1, 5):
-                pages = await asyncio.gather(*(request_json(base + f"/models?page={page}&per_page=1000", key) for page in range(first, min(first + 5, total_pages + 1))))
-                for page in pages:
-                    if not isinstance(page.get("data"), list):
-                        raise RMError("Provider model page has an unexpected format.")
-                    for model in page["data"]:
-                        if isinstance(model, dict) and isinstance(model.get("id"), str):
-                            models[model["id"]] = model
+            # Fetch pages sequentially to stay below its concurrency limit.
+            for page_number in range(2, total_pages + 1):
+                page = await catalog_request(provider, base + f"/models?page={page_number}&per_page=1000", key)
+                if not isinstance(page.get("data"), list):
+                    raise RMError("Provider model page has an unexpected format.")
+                for model in page["data"]:
+                    if isinstance(model, dict) and isinstance(model.get("id"), str):
+                        models[model["id"]] = model
             break
         link = (data.get("links") or {}).get("next")
         url = (origin.scheme + "://" + origin.netloc + link if link and link.startswith("/") else link)
     if not models:
         raise RMError("Provider returned an empty model catalog.")
-    return [{"id": m["id"], "name": m.get("name", m["id"]), "available_on_current_plan": m.get("available_on_current_plan")} for m in sorted(models.values(), key=lambda m: m["id"].casefold())]
+    catalog = [{"id": m["id"], "name": m.get("name", m["id"]), "available_on_current_plan": m.get("available_on_current_plan")} for m in sorted(models.values(), key=lambda m: m["id"].casefold())]
+    with LOCK:
+        CATALOG_CACHE[provider] = (time.monotonic(), catalog)
+        CATALOG_STATUS[provider] = {"source": "live catalog", "warning": ""}
+    write_catalog_cache(provider, catalog)
+    return copy.deepcopy(catalog)
 
 
 async def model_capabilities(provider, model, refresh=False, key=""):
@@ -374,9 +486,7 @@ async def model_capabilities(provider, model, refresh=False, key=""):
         raw = await request_json(base + "/models/" + encoded, key)
         raw = raw.get("data", raw)
         features = raw.get("features") or {}
-        modalities = list(raw.get("input_modalities") or ["text"])
-        if raw.get("vision_supported") or features.get("image_input"):
-            modalities = sorted(set(modalities) | {"image"})
+        modalities = featherless_modalities(raw)
         # Featherless documents image chat, but no native video chat transport.
         modalities = [m for m in modalities if m != "video"]
         params = list(records["parameters"])
@@ -447,7 +557,8 @@ async def api_request(request):
             result = {"ticket": issue_ticket(provider, data.get("session", ""))}
         elif action == "models":
             key = session_key(provider, data["session"]) if data.get("session") else environment_key(provider, data.get("env_name", ""))
-            result = {"models": await fetch_catalog(provider, key)}
+            result = {"models": await fetch_catalog(provider, key, force=bool(data.get("force")))}
+            result.update(CATALOG_STATUS.get(provider, {}))
         elif action == "capabilities":
             key = session_key(provider, data["session"]) if data.get("session") else environment_key(provider, data.get("env_name", ""), required=True)
             result = await model_capabilities(provider, data.get("model", ""), refresh=True, key=key)

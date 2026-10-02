@@ -1,8 +1,11 @@
-# RM-ComfyUI-LLM 0.3.2
+# RM-ComfyUI-LLM 0.3.3
 
-**Version:** 0.3.2  
-**Node:** `RM_LLM_V3`  
-**Display name:** RM-LLM 0.3.2
+**Version:** 0.3.3
+
+**Node:** `RM_LLM_V3`
+
+**Display name:** RM-LLM 0.3.3
+
 **Category:** `RM/API`
 
 A lightweight ComfyUI node for calling OpenRouter, Featherless, and LithosAI chat models. It supports live model discovery, model-specific controls, text prompts, supported image/video inputs, reasoning/thinking controls, streaming console output, and ComfyUI input connections.
@@ -15,7 +18,7 @@ Copy this folder into:
 ComfyUI/custom_nodes/RM-Comfyui-LLM
 ```
 
-Restart ComfyUI and refresh the browser. The node is available under **RM/API → RM-LLM 0.3.2**.
+Restart ComfyUI and refresh the browser. The node is available under **RM/API → RM-LLM 0.3.3**.
 
 The package uses dependencies already provided by ComfyUI. It does not download models or install Python packages.
 
@@ -27,13 +30,13 @@ The package uses dependencies already provided by ComfyUI. It does not download 
 | Featherless | `https://api.featherless.ai/v1` | `FEATHERLESS_API_KEY` |
 | LithosAI | `https://api.lithosai.cloud/v1` | `LITHOSAI_API_KEY` |
 
-Click **Model Name** to download the provider's current model catalog. Select a model to load its available controls and media capabilities.
+Click **Model Name** to open the model catalog. Successful catalogs are cached under ComfyUI's user directory and reused after restart; **Refresh** checks the live catalog. If discovery is unavailable, enter a model ID in the picker or connect a native **PrimitiveString** node to **model_name**. The selected model's metadata loads its controls and media capabilities.
 
 ## API keys
 
 The node reads the key from the selected environment variable. Keys are never written to workflows.
 
-RM-LLM 0.3.2 has one masked API-key field and a **Set** button. **API Key System** controls the destination: **Environment variable** places it in the running ComfyUI process without administrator or `sudo` access; **Masked session key** keeps it only in server memory for the current session. The key is not written to disk or saved in workflows. Environment setup must be repeated after restarting ComfyUI.
+RM-LLM 0.3.3 has one masked API-key field and a **Set** button. **API Key System** controls the destination: **Environment variable** places it in the running ComfyUI process without administrator or `sudo` access; **Masked session key** keeps it only in server memory for the current session. The key is not written to disk or saved in workflows. Environment setup must be repeated after restarting ComfyUI.
 
 For persistent use, set the environment variable outside ComfyUI before starting it. The variable name can be changed in the node's **API Key System** section.
 
@@ -61,7 +64,7 @@ RM-LLM sends tool calls back in `response_json`; it does not execute external to
 - OpenRouter endpoint routing and reasoning metadata.
 - Featherless `chat_template_kwargs` discovery and thinking controls.
 - LithosAI OpenAI-compatible chat controls, including `reasoning_effort`, sampling, token limits, tools, response formats, and streaming.
-- Bounded retries for documented rate-limit and provider-server errors.
+- Bounded retries for rate-limit and provider-server errors. Featherless streaming capacity rejections are retried only before any completion output has started; partial output is never automatically repeated.
 - Optional image and native video input where the selected provider/model supports it.
 - Environment-variable credentials and temporary masked session credentials.
 
@@ -71,7 +74,7 @@ LithosAI currently reports text-only input because its published API documentati
 
 The node is designed for current ComfyUI installations with the standard `aiohttp`, NumPy, Pillow, PyTorch, and ComfyUI video APIs. The included PowerShell launcher is optional and Windows-specific; the node itself uses relative paths and environment variables.
 
-`RM_LLM_V2` remains registered as a legacy node for existing v2 workflows. New workflows should use `RM_LLM_V3` (displayed as **RM-LLM 0.3.2**).
+`RM_LLM_V2` remains registered as a legacy node for existing v2 workflows. New workflows should use `RM_LLM_V3` (displayed as **RM-LLM 0.3.3**).
 
 ## License
 
