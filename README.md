@@ -1,89 +1,68 @@
-# RM-ComfyUI-LLM 0.3.3
+# RM-ComfyUI-LLM
 
-**Version:** 0.3.3
+Bring OpenRouter, Featherless and LithosAI models into your ComfyUI workflows. Choose a model, connect your prompts and use the controls that model supports.
 
-**Node:** `RM_LLM_V3`
+## Features
 
-**Display name:** RM-LLM 0.3.3
-
-**Category:** `RM/API`
-
-A lightweight ComfyUI node for calling OpenRouter, Featherless, and LithosAI chat models. It supports live model discovery, model-specific controls, text prompts, supported image/video inputs, reasoning/thinking controls, streaming console output, and ComfyUI input connections.
+- **Model discovery:** search provider catalogues, reuse cached lists or enter a model ID when discovery is unavailable.
+- **Model-specific controls:** supported sampling settings, Thinking/Reasoning and known chat-template options.
+- **Creativity slider:** adjusts temperature and top_p together, with independent settings in Advanced.
+- **Images and video:** connect reference media where the provider and model support it. Unsupported media connections become N/A and are omitted from the request.
+- **Workflow connections:** connect prompts and settings from other nodes, with collapsible Model, Simple and Advanced sections.
+- **Live console output:** stream generated text and returned reasoning as they arrive.
+- **Keys kept out of workflows:** masked key entry, environment-variable credentials and temporary session keys.
+- **Separate outputs:** generated text, returned reasoning and the full provider response, including usage when supplied.
 
 ## Install
 
-Copy this folder into:
+Open a terminal in your ComfyUI `custom_nodes` directory and run:
 
-```text
-ComfyUI/custom_nodes/RM-Comfyui-LLM
+```sh
+git clone https://github.com/RevenueMonkey/RM-Comfyui-LLM.git
 ```
 
-Restart ComfyUI and refresh the browser. The node is available under **RM/API → RM-LLM 0.3.3**.
+Restart ComfyUI, refresh your browser and find **RM-LLM** under **RM/API**. The package uses dependencies supplied by ComfyUI; it does not download model weights.
 
-The package uses dependencies already provided by ComfyUI. It does not download models or install Python packages.
-
-## Providers
-
-| Provider | API base | Default environment variable |
-|---|---|---|
-| OpenRouter | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
-| Featherless | `https://api.featherless.ai/v1` | `FEATHERLESS_API_KEY` |
-| LithosAI | `https://api.lithosai.cloud/v1` | `LITHOSAI_API_KEY` |
-
-Click **Model Name** to open the model catalog. Successful catalogs are cached under ComfyUI's user directory and reused after restart; **Refresh** checks the live catalog. If discovery is unavailable, enter a model ID in the picker or connect a native **PrimitiveString** node to **model_name**. The selected model's metadata loads its controls and media capabilities.
+To update an existing Git installation, run `git pull --ff-only` inside its folder, then restart ComfyUI and refresh your browser. Update your existing copy rather than installing a duplicate of the same package.
 
 ## API keys
 
-The node reads the key from the selected environment variable. Keys are never written to workflows.
+Choose a provider and **API Key System**, paste your key into the masked **API Key** field and press **Set**.
 
-RM-LLM 0.3.3 has one masked API-key field and a **Set** button. **API Key System** controls the destination: **Environment variable** places it in the running ComfyUI process without administrator or `sudo` access; **Masked session key** keeps it only in server memory for the current session. The key is not written to disk or saved in workflows. Environment setup must be repeated after restarting ComfyUI.
+| Provider | Default environment variable |
+|---|---|
+| OpenRouter | `OPENROUTER_API_KEY` |
+| Featherless | `FEATHERLESS_API_KEY` |
+| LithosAI | `LITHOSAI_API_KEY` |
 
-For persistent use, set the environment variable outside ComfyUI before starting it. The variable name can be changed in the node's **API Key System** section.
+On the default branch, **Environment variable** sets the key in the running ComfyUI process. For persistence across restarts, configure the variable in your operating system or launcher before starting ComfyUI. **Masked session key** keeps it in server memory for that session only. Headless/API workflows should use environment variables.
 
-## Using the node
+Keys are excluded from saved workflows. Masking hides the entry on screen; it does not encrypt environment variables. Requests send the key to the selected API provider for authentication.
 
-1. Select a provider and model.
-2. Enter a system prompt and user prompt.
-3. Connect an image or video when the selected model advertises that input. If a model change leaves an existing media connection unsupported, RM-LLM labels it **N/A**, mutes its socket, and omits that media from the request while continuing with text.
-4. Adjust **Creativity**, **Thinking/Reasoning**, or model-specific controls.
-5. Enable **Live console output** when you want streamed text and reasoning printed as it arrives.
-6. Queue the workflow.
+## Use
 
-All visible settings can be connected to other ComfyUI nodes. Unsupported settings are rejected with a clear error. Empty settings are omitted so the provider can use its own defaults.
+1. Select your provider and model, then set its API key.
+2. Enter or connect the system and user prompts.
+3. Connect supported reference media if needed.
+4. Adjust Creativity and Thinking/Reasoning. Open Advanced for individual model controls and live console output.
+5. Run the workflow.
 
-The outputs are:
+| Output | Contents |
+|---|---|
+| `response` | Generated text |
+| `reasoning` | Reasoning returned by the model, when available |
+| `response_json` | Full provider response, including usage and tool calls when supplied |
 
-- `response` — generated text
-- `reasoning` — returned reasoning, when supplied by the model
-- `response_json` — the complete provider response, including usage and tool calls when supplied
+Available controls and media support depend on the selected provider's API metadata and documented capabilities. The same model may expose different features through different providers. LithosAI's current integration supports text input. Tool calls are returned as data; RM-LLM does not execute external tools.
 
-RM-LLM sends tool calls back in `response_json`; it does not execute external tools itself.
+## Development and releases
 
-## Supported behavior
+The [development branch](https://github.com/RevenueMonkey/RM-Comfyui-LLM/tree/release/0.4.0) adds an inline model picker, improved catalogue recovery, persistent key setup and a frontend rebuilt around native ComfyUI hooks, with a built-in response preview. It has been tested locally on Windows and is awaiting merge in [pull request #1](https://github.com/RevenueMonkey/RM-Comfyui-LLM/pull/1); these changes are not yet included in the default installation above.
 
-- OpenRouter endpoint routing and reasoning metadata.
-- Featherless `chat_template_kwargs` discovery and thinking controls.
-- LithosAI OpenAI-compatible chat controls, including `reasoning_effort`, sampling, token limits, tools, response formats, and streaming.
-- Bounded retries for rate-limit and provider-server errors. Featherless streaming capacity rejections are retried only before any completion output has started; partial output is never automatically repeated.
-- Optional image and native video input where the selected provider/model supports it.
-- Environment-variable credentials and temporary masked session credentials.
+See the [dated changelog](https://github.com/RevenueMonkey/RM-Comfyui-LLM/blob/release/0.4.0/CHANGELOG.md) for version details. Changelog dates record changes, not Registry publication dates. Cross-platform runtime verification is still incomplete.
 
-LithosAI currently reports text-only input because its published API documentation does not define image or video message parts.
+## Support and license
 
-## Compatibility
+Report problems in [GitHub Issues](https://github.com/RevenueMonkey/RM-Comfyui-LLM/issues), including the package version, ComfyUI/frontend versions, provider, model and error text. Remove keys and private prompts from anything you share.
 
-The node is designed for current ComfyUI installations with the standard `aiohttp`, NumPy, Pillow, PyTorch, and ComfyUI video APIs. The included PowerShell launcher is optional and Windows-specific; the node itself uses relative paths and environment variables.
-
-`RM_LLM_V2` remains registered as a legacy node for existing v2 workflows. New workflows should use `RM_LLM_V3` (displayed as **RM-LLM 0.3.3**).
-
-## License
-
-MIT License. See [LICENSE](LICENSE).
-
-## Documentation
-
-- [OpenRouter API](https://openrouter.ai/docs)
-- [Featherless API](https://featherless.ai/docs)
-- [LithosAI API](https://docs.lithosai.com/)
-- [LithosAI OpenAPI schema](https://docs.lithosai.com/openapi.yaml)
-- [ComfyUI custom-node guide](https://docs.comfy.org/custom-nodes/walkthrough)
+[MIT License](LICENSE).
