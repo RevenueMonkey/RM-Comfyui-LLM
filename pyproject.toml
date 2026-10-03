@@ -1,6 +1,6 @@
 [project]
 name = "rm-comfyui-llm"
-description = "ComfyUI LLM nodes for OpenRouter, Featherless, and LithosAI."
+description = "Connect OpenRouter, Featherless and LithosAI to ComfyUI with searchable model catalogues, model-specific controls, image/video inputs where supported, Thinking/Reasoning, a linked Creativity slider, live console streaming, and API keys kept out of workflows."
 version = "0.4.0"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }

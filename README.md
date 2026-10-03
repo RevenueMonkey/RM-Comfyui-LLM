@@ -10,6 +10,17 @@
 
 A lightweight ComfyUI node for calling OpenRouter, Featherless, and LithosAI chat models. It supports live model discovery, model-specific controls, text prompts, supported image/video inputs, reasoning/thinking controls, streaming console output, and ComfyUI input connections.
 
+## Features
+
+- **Find your model:** search a live catalogue or type a model ID. Cached catalogues remain available between sessions.
+- **Controls that follow the model:** supported sampling, Thinking/Reasoning and template settings appear as individual controls. Image and video inputs appear where supported.
+- **One Creativity slider:** adjusts temperature and top_p together, with independent controls in Advanced.
+- **Connect your workflow:** prompts and settings accept inputs from other nodes. Collapsible sections keep connected rows visible.
+- **Watch the response:** optional live console streaming, plus separate response, reasoning and JSON outputs.
+- **Keep keys out of workflows:** masked key entry, persistent environment-variable credentials or a temporary session key.
+
+See [dated changes and release notes](CHANGELOG.md).
+
 ## Install
 
 Copy this folder into:
