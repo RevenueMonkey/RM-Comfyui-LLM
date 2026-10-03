@@ -1,4 +1,4 @@
-"""Provider metadata and in-memory credentials. No credentials are written to disk."""
+"""Provider metadata, persistent user environment keys and temporary sessions."""
 import asyncio
 import copy
 import html
@@ -22,6 +22,7 @@ try:
 except ImportError:  # pragma: no cover - allows lightweight offline imports
     folder_paths = None
 from .template_options import DOC_URL, discover_template_options, parse_family_records
+from .environment_store import read_persistent_environment, write_persistent_environment
 
 ROOT = Path(__file__).resolve().parent
 PROVIDERS = {
@@ -34,6 +35,10 @@ LOCK = threading.RLock()
 DETAILS = {}
 CATALOG_CACHE = {}
 CATALOG_STATUS = {}
+CATALOG_COOLDOWNS = {}
+CATALOG_TASKS = {}
+CATALOG_PROGRESS = {}
+FEATHERLESS_PAGE_INTERVAL = 2.0
 SESSIONS = {}
 TICKETS = {}
 SESSION_TTL = 12 * 3600
@@ -120,22 +125,34 @@ def environment_key(provider, name="", required=False):
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name):
         raise RMError("Enter an environment variable name, not an API key.")
     key = os.environ.get(name, "").strip()
+    if not key:
+        try:
+            key = read_persistent_environment(name).strip()
+        except (OSError, ValueError):
+            raise RMError("Could not read the saved API-key environment. Check user permissions or set the key again.") from None
     if key and (len(key) > 4096 or any(ord(c) < 33 or ord(c) > 126 for c in key)):
         raise RMError("The API-key environment variable contains an invalid credential value.")
     if required and not key:
         raise RMError(MISSING_API_KEY_ERROR)
+    if key:
+        os.environ[name] = key
     return key
 
 
-def set_process_environment_key(provider, name, key):
-    """Set a provider key for this ComfyUI process without saving it in a workflow."""
+def set_environment_key(provider, name, key):
+    """Persist a user environment key and apply it to this ComfyUI process."""
     provider_info(provider)
     name = name.strip() or provider_info(provider)[1]
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", name):
         raise RMError("Enter an environment variable name, not an API key.")
     if not isinstance(key, str) or not 1 <= len(key.strip()) <= 4096 or any(ord(c) < 33 or ord(c) > 126 for c in key.strip()):
         raise RMError("API key must be nonempty text without spaces or control characters.")
-    os.environ[name] = key.strip()
+    with LOCK:
+        try:
+            write_persistent_environment(name, key.strip())
+        except (OSError, ValueError):
+            raise RMError("Could not save the API-key environment. Check user permissions; the key was not set.") from None
+        os.environ[name] = key.strip()
     return name
 
 
@@ -224,7 +241,7 @@ async def request_json(url, key="", body=None, timeout=45):
                     status = int(code) if code.isdecimal() and 400 <= int(code) <= 599 else 0
                     raise provider_error(status, data, key, response.headers.get("Retry-After"), http_status=200)
                 return result
-    except (aiohttp.ClientError, TimeoutError):
+    except (aiohttp.ClientError, asyncio.TimeoutError):
         raise RMError("Provider connection failed or timed out. Check connectivity or increase timeout_seconds. No automatic retry was made.") from None
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise RMError("Provider returned invalid JSON.") from None
@@ -239,19 +256,22 @@ def catalog_cache_path():
     """Keep model catalogs in ComfyUI user data, never in the node package."""
     getter = getattr(folder_paths, "get_user_directory", None)
     user_dir = getter() if getter else ROOT
-    path = Path(user_dir) / "RM-LLM" / "catalog_cache.json"
+    path = Path(user_dir) / "RM-LLM-0.4.0" / "catalog_cache.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def read_catalog_cache(provider):
-    try:
-        document = json.loads(catalog_cache_path().read_text(encoding="utf-8"))
-        models = document.get(provider) if isinstance(document, dict) else None
-        if isinstance(models, list) and all(isinstance(item, dict) and isinstance(item.get("id"), str) for item in models):
-            return models
-    except (OSError, ValueError, TypeError):
-        pass
+    path = catalog_cache_path()
+    # Reuse public catalogs from the previous installation without altering it.
+    for candidate in (path, path.parent.parent / "RM-LLM" / path.name):
+        try:
+            document = json.loads(candidate.read_text(encoding="utf-8"))
+            models = document.get(provider) if isinstance(document, dict) else None
+            if isinstance(models, list) and all(isinstance(item, dict) and isinstance(item.get("id"), str) for item in models):
+                return models
+        except (OSError, ValueError, TypeError):
+            pass
     return None
 
 
@@ -319,7 +339,7 @@ async def refresh_records(provider):
                     if response.status != 200:
                         raise RMError("Featherless documentation refresh failed. The previous record is unchanged.")
                     page = await response.text()
-        except (aiohttp.ClientError, TimeoutError):
+        except (aiohttp.ClientError, asyncio.TimeoutError):
             raise RMError("Featherless documentation could not be reached. The previous record is unchanged.") from None
         params = {}
         for row in re.findall(r"<tr\b[^>]*>(.*?)</tr>", page, flags=re.S):
@@ -342,7 +362,7 @@ async def refresh_records(provider):
                     if response.status != 200:
                         raise RMError("Chat-template documentation refresh failed; previous record retained.")
                     records[provider]["template_options"] = parse_family_records(await response.text())
-        except (aiohttp.ClientError, TimeoutError, ValueError):
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
             raise RMError("Chat-template documentation refresh failed; previous record retained.") from None
     else:
         # LithosAI publishes its parameter contract as OpenAPI. Keep the
@@ -362,46 +382,234 @@ async def refresh_records(provider):
 
 
 async def catalog_request(provider, url, key):
-    for attempt in range(3):
-        try:
-            return await request_json(url, key)
-        except ProviderHTTPError as error:
-            if provider != "Featherless" or error.status != 429 or attempt == 2:
-                raise
-            delay = error.retry_after if error.retry_after is not None else 2 * (attempt + 1)
-            delay = min(max(0.5, delay), 10.0)
-            logging.warning("[RM-LLM] Featherless catalog is rate-limited; retrying in %.1f seconds (%s/2).", delay, attempt + 1)
-            await asyncio.sleep(delay)
-
-
-async def fetch_catalog(provider, key="", force=False):
+    if provider == "Featherless":
+        # The public catalog does not need account authentication. Omit it for
+        # every page, including callers that already resolved an API key.
+        key = ""
+        with LOCK:
+            remaining = CATALOG_COOLDOWNS.get(provider, 0) - time.monotonic()
+        if remaining > 0:
+            raise ProviderHTTPError(429, "Featherless catalog is cooling down. Try later.", remaining)
     try:
-        return await _fetch_catalog(provider, key, force)
+        return await request_json(url, key)
     except ProviderHTTPError as error:
-        local = read_catalog_cache(provider)
-        if local and error.status == 429:
+        if provider == "Featherless" and error.status == 429:
+            # Return promptly to the UI instead of keeping 'Fetching' displayed
+            # throughout a ten-minute sleep. Refresh cannot bypass the cooldown.
+            delay = max(600.0, error.retry_after or 0.0)
             with LOCK:
-                CATALOG_CACHE[provider] = (time.monotonic(), local)
-                CATALOG_STATUS[provider] = {"source": "local cache", "warning": f"{provider} is rate-limiting live discovery; showing the last successful local catalog."}
-            return copy.deepcopy(local)
+                CATALOG_COOLDOWNS[provider] = time.monotonic() + delay
+            logging.warning("[RM-LLM] Featherless catalog is rate-limited; try again after %.1f seconds.", delay)
+            raise ProviderHTTPError(429, "Featherless catalog is rate-limited. Try later.", delay) from None
         raise
 
 
+async def fetch_catalog(provider, key="", force=False):
+    # Multiple nodes/pickers share one download. Closing a browser request must
+    # not cancel the download another picker is still using.
+    with LOCK:
+        task = CATALOG_TASKS.get(provider)
+        if task is None or task.done():
+            task = asyncio.create_task(_catalog_result(provider, key, force))
+            CATALOG_TASKS[provider] = task
+            def finished(done):
+                with LOCK:
+                    if CATALOG_TASKS.get(provider) is done:
+                        CATALOG_TASKS.pop(provider, None)
+                if not done.cancelled():
+                    done.exception()
+            task.add_done_callback(finished)
+    return copy.deepcopy(await asyncio.shield(task))
+
+
+async def _catalog_result(provider, key, force):
+    try:
+        return await _fetch_catalog(provider, key, force)
+    except RMError:
+        progress = catalog_progress(provider)
+        if progress.get("state") == "loading":
+            set_catalog_progress(provider, state="failed")
+        local = read_catalog_cache(provider)
+        if local:
+            with LOCK:
+                CATALOG_CACHE[provider] = (time.monotonic(), local)
+                CATALOG_STATUS[provider] = {"source": "local cache", "warning": "Try later. Showing the last successful catalog."}
+            return copy.deepcopy(local)
+        if provider == "Featherless":
+            partial = read_catalog_checkpoint()
+            if partial and partial["models"]:
+                with LOCK:
+                    CATALOG_STATUS[provider] = {"source": "partial catalog", "warning": "Try later. Showing retained models; catalog is incomplete."}
+                return sorted(partial["models"], key=lambda model: model["id"].casefold())
+        raise
+
+
+def set_catalog_progress(provider, **fields):
+    with LOCK:
+        CATALOG_PROGRESS.setdefault(provider, {}).update(fields)
+
+
+def catalog_progress(provider):
+    with LOCK:
+        progress = copy.deepcopy(CATALOG_PROGRESS.get(provider, {}))
+    if not progress and provider == "Featherless":
+        checkpoint = read_catalog_checkpoint()
+        if checkpoint:
+            progress = {"state": "paused", "count": len(checkpoint["models"]),
+                        "page": checkpoint["next_page"], "total_pages": checkpoint["total_pages"],
+                        "total": checkpoint["total_items"], "retry_at": checkpoint["retry_at"]}
+    if not progress:
+        with LOCK:
+            cached = CATALOG_CACHE.get(provider)
+        models = cached[1] if cached else read_catalog_cache(provider)
+        if models is not None:
+            progress = {"state": "cached", "count": len(models), "total": len(models), "retry_at": 0}
+            set_catalog_progress(provider, **progress)
+    progress["retry_seconds"] = max(0, int(progress.get("retry_at", 0) - time.time() + 0.999))
+    return progress
+
+
+def read_catalog_checkpoint():
+    """Incomplete public metadata is separate from the last complete catalog."""
+    try:
+        path = catalog_cache_path().with_name("featherless_catalog_progress.json")
+        if not path.exists() and not catalog_cache_path().exists():
+            path = path.parent.parent / "RM-LLM" / path.name
+        if path.stat().st_size > MAX_RESPONSE_BYTES:
+            return None
+        document = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(document, dict) or document.get("version") != 1:
+            return None
+        page, pages = document.get("next_page"), document.get("total_pages")
+        models = document.get("models")
+        if (not isinstance(page, int) or not isinstance(pages, int)
+                or not 1 <= page <= max(1, pages) or not 0 <= pages <= 1000
+                or not isinstance(models, list)
+                or not all(isinstance(model, dict) and isinstance(model.get("id"), str) for model in models)
+                or not all(isinstance(document.get(name), (int, float))
+                           and 0 <= document[name] < float("inf") for name in ("retry_at", "last_request_at", "total_items"))):
+            return None
+        return document
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def save_catalog_checkpoint(checkpoint):
+    try:
+        with LOCK:
+            path = catalog_cache_path().with_name("featherless_catalog_progress.json")
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(checkpoint, ensure_ascii=False), encoding="utf-8")
+            temporary.replace(path)
+    except OSError:
+        logging.warning("[RM-LLM] Could not save Featherless catalog progress.")
+
+
+def compact_catalog_model(model):
+    return {"id": model["id"], "name": model.get("name", model["id"]),
+            "available_on_current_plan": model.get("available_on_current_plan")}
+
+
+async def fetch_featherless_catalog(base):
+    provider = "Featherless"
+    checkpoint = read_catalog_checkpoint() or {
+        "version": 1, "models": [], "next_page": 1, "total_pages": 0,
+        "total_items": 0, "retry_at": 0, "last_request_at": 0,
+    }
+    models = {model["id"]: compact_catalog_model(model) for model in checkpoint["models"]}
+    set_catalog_progress(provider, state="loading", count=len(models), page=checkpoint["next_page"],
+                         total_pages=checkpoint["total_pages"], total=checkpoint["total_items"], retry_at=0, reason="")
+    remaining = checkpoint["retry_at"] - time.time()
+    if remaining > 0:
+        with LOCK:
+            CATALOG_COOLDOWNS[provider] = max(CATALOG_COOLDOWNS.get(provider, 0), time.monotonic() + remaining)
+        set_catalog_progress(provider, state="paused", retry_at=checkpoint["retry_at"])
+        raise ProviderHTTPError(429, "Featherless catalog is cooling down. Try later.", remaining)
+    while True:
+        page_number = checkpoint["next_page"]
+        set_catalog_progress(provider, state="loading", page=page_number)
+        try:
+            # Space request starts, including the first request after restart.
+            delay = FEATHERLESS_PAGE_INTERVAL - (time.time() - checkpoint["last_request_at"])
+            if delay > 0:
+                await asyncio.sleep(min(delay, FEATHERLESS_PAGE_INTERVAL))
+            checkpoint["last_request_at"] = time.time()
+            data = await catalog_request(provider, base + f"/models?page={page_number}&per_page=1000", "")
+            if not isinstance(data.get("data"), list):
+                raise RMError("Provider model page has an unexpected format.")
+            pagination = data.get("pagination") or {}
+            if not isinstance(pagination, dict):
+                raise RMError("Provider returned invalid model pagination.")
+            pages = pagination.get("total_pages", 1)
+            total = pagination.get("total_items", 0)
+            if (not isinstance(pages, int) or not 1 <= pages <= 1000
+                    or not isinstance(total, int) or total < 0
+                    or pagination.get("current_page", page_number) != page_number):
+                raise RMError("Provider returned invalid model pagination.")
+            if page_number > 1 and (pages != checkpoint["total_pages"] or total != checkpoint["total_items"]):
+                # There is no catalog snapshot API. Restart on a changed page
+                # count/total instead of presenting mixed pages as complete.
+                models.clear()
+                checkpoint.update(models=[], next_page=1, total_pages=0, total_items=0, retry_at=0)
+                save_catalog_checkpoint(checkpoint)
+                set_catalog_progress(provider, state="failed", count=0, page=1, total_pages=0, total=0, reason="Catalog changed; try again.")
+                raise RMError("Featherless catalog changed during retrieval. Try again to download the updated list.")
+            checkpoint.update(total_pages=pages, total_items=total)
+            for model in data["data"]:
+                if isinstance(model, dict) and isinstance(model.get("id"), str):
+                    models[model["id"]] = compact_catalog_model(model)
+            set_catalog_progress(provider, count=len(models), total=total, total_pages=pages, reason="")
+            checkpoint.update(models=list(models.values()), retry_at=0)
+            if page_number >= pages:
+                if not models:
+                    raise RMError("Provider returned an empty model catalog.")
+                break
+            checkpoint["next_page"] = page_number + 1
+            save_catalog_checkpoint(checkpoint)
+        except RMError as error:
+            retry_at = time.time() + error.retry_after if isinstance(error, ProviderHTTPError) and error.status == 429 and error.retry_after else 0
+            checkpoint["retry_at"] = retry_at
+            save_catalog_checkpoint(checkpoint)
+            if catalog_progress(provider).get("state") != "failed":
+                set_catalog_progress(provider, state="paused" if retry_at else "failed", retry_at=retry_at)
+            logging.warning("[RM-LLM] Featherless catalog stopped at page %s/%s; %s models retained (%s).",
+                            page_number, checkpoint["total_pages"] or "?", len(models),
+                            f"HTTP {error.status}" if isinstance(error, ProviderHTTPError) else "retrieval failed")
+            raise
+    return sorted(models.values(), key=lambda model: model["id"].casefold())
+
+
 async def _fetch_catalog(provider, key="", force=False):
+    resuming = provider == "Featherless" and read_catalog_checkpoint() is not None
     with LOCK:
         cached = CATALOG_CACHE.get(provider)
-        if cached and not force and time.monotonic() - cached[0] < CATALOG_TTL:
+        if cached and not force and not resuming and time.monotonic() - cached[0] < CATALOG_TTL:
             CATALOG_STATUS[provider] = {"source": "memory cache", "warning": ""}
+            set_catalog_progress(provider, state="cached", count=len(cached[1]), total=len(cached[1]), retry_at=0)
             return copy.deepcopy(cached[1])
-    if not force:
+    if not force and not resuming:
         local = read_catalog_cache(provider)
         if local:
             with LOCK:
                 CATALOG_CACHE[provider] = (time.monotonic(), local)
                 CATALOG_STATUS[provider] = {"source": "local cache", "warning": "Live catalog is checked only with Refresh."}
+                set_catalog_progress(provider, state="cached", count=len(local), total=len(local), retry_at=0)
             return copy.deepcopy(local)
     base, _ = provider_info(provider)
-    url = base + ("/models?page=1&per_page=1000" if provider == "Featherless" else "/models")
+    if provider == "Featherless":
+        catalog = await fetch_featherless_catalog(base)
+        with LOCK:
+            CATALOG_CACHE[provider] = (time.monotonic(), catalog)
+            CATALOG_STATUS[provider] = {"source": "live catalog", "warning": ""}
+        write_catalog_cache(provider, catalog)
+        try:
+            catalog_cache_path().with_name("featherless_catalog_progress.json").unlink(missing_ok=True)
+        except OSError:
+            logging.warning("[RM-LLM] Could not clear completed Featherless catalog progress.")
+        set_catalog_progress(provider, state="ready", count=len(catalog), retry_at=0)
+        return copy.deepcopy(catalog)
+    set_catalog_progress(provider, state="loading", count=0, page=1, total_pages=0, total=0, retry_at=0)
+    url = base + "/models"
     models = {}
     seen = set()
     while url:
@@ -422,8 +630,7 @@ async def _fetch_catalog(provider, key="", force=False):
             total_pages = pagination.get("total_pages")
             if not isinstance(total_pages, int) or not 1 <= total_pages <= 1000:
                 raise RMError("Provider returned invalid model pagination.")
-            # Featherless can return fewer than per_page items after filtering.
-            # Fetch pages sequentially to stay below its concurrency limit.
+            # Follow advertised pages sequentially.
             for page_number in range(2, total_pages + 1):
                 page = await catalog_request(provider, base + f"/models?page={page_number}&per_page=1000", key)
                 if not isinstance(page.get("data"), list):
@@ -441,6 +648,7 @@ async def _fetch_catalog(provider, key="", force=False):
         CATALOG_CACHE[provider] = (time.monotonic(), catalog)
         CATALOG_STATUS[provider] = {"source": "live catalog", "warning": ""}
     write_catalog_cache(provider, catalog)
+    set_catalog_progress(provider, state="ready", count=len(catalog), total=len(catalog), retry_at=0)
     return copy.deepcopy(catalog)
 
 
@@ -526,7 +734,7 @@ def check_local_request(request, secret=False):
 
 async def api_request(request):
     try:
-        check_local_request(request, secret=request.match_info["action"] in {"key", "ticket"})
+        check_local_request(request, secret=request.match_info["action"] in {"key", "ticket", "set_env"})
         if request.content_length and request.content_length > 16384:
             raise RMError("Request is too large.")
         data = await request.json()
@@ -541,24 +749,34 @@ async def api_request(request):
             else:
                 result = {"session": store_session(provider, data.get("key")), "expires_in": SESSION_TTL}
         elif action == "set_env":
-            name = set_process_environment_key(provider, data.get("env_name", ""), data.get("key"))
-            result = {"environment_variable": name, "key_present": True}
+            name = set_environment_key(provider, data.get("env_name", ""), data.get("key"))
+            result = {"environment_variable": name, "key_present": True, "persistent": True}
         elif action == "credential_status":
-            if data.get("session"):
+            source = data.get("credential_source") or ("Masked session key" if data.get("session") else "Environment variable")
+            if source == "Masked session key":
                 try:
-                    session_key(provider, data["session"])
+                    session_key(provider, data.get("session", ""))
                 except RMError:
                     result = {"key_present": False}
                 else:
                     result = {"key_present": True}
-            else:
+            elif source == "Environment variable":
                 result = {"key_present": bool(environment_key(provider, data.get("env_name", "")))}
+            else:
+                raise RMError("Select Environment variable or Masked session key.")
         elif action == "ticket":
             result = {"ticket": issue_ticket(provider, data.get("session", ""))}
         elif action == "models":
-            key = session_key(provider, data["session"]) if data.get("session") else environment_key(provider, data.get("env_name", ""))
+            if provider == "Featherless":
+                key = ""
+            else:
+                key = session_key(provider, data["session"]) if data.get("session") else environment_key(provider, data.get("env_name", ""))
             result = {"models": await fetch_catalog(provider, key, force=bool(data.get("force")))}
             result.update(CATALOG_STATUS.get(provider, {}))
+            result["progress"] = catalog_progress(provider)
+        elif action == "catalog_status":
+            # Browser polling reads local progress only; no provider request.
+            result = {"progress": catalog_progress(provider)}
         elif action == "capabilities":
             key = session_key(provider, data["session"]) if data.get("session") else environment_key(provider, data.get("env_name", ""), required=True)
             result = await model_capabilities(provider, data.get("model", ""), refresh=True, key=key)
@@ -572,4 +790,4 @@ async def api_request(request):
 
 
 def register_routes():
-    PromptServer.instance.routes.post("/rm_llm/{action}")(api_request)
+    PromptServer.instance.routes.post("/rm_llm_040/{action}")(api_request)

@@ -1,4 +1,5 @@
 """Read template metadata without rendering templates or loading model code."""
+import asyncio
 import copy
 import html
 import json
@@ -118,7 +119,7 @@ async def fetch_template(model):
                             text = text.get("default")
                     if isinstance(text, str):
                         return inspect_template(text), root + filename, rejects_system_role(text)
-    except (aiohttp.ClientError, TimeoutError, UnicodeDecodeError, ValueError, TemplateError):
+    except (aiohttp.ClientError, asyncio.TimeoutError, UnicodeDecodeError, ValueError, TemplateError):
         pass
     return None, "", False
 

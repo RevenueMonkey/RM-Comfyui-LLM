@@ -1,10 +1,10 @@
-# RM-ComfyUI-LLM 0.3.3
+# RM-ComfyUI-LLM 0.4.0
 
-**Version:** 0.3.3
+**Version:** 0.4.0
 
-**Node:** `RM_LLM_V3`
+**Node:** `RM_LLM_040`
 
-**Display name:** RM-LLM 0.3.3
+**Display name:** RM-LLM 0.4.0
 
 **Category:** `RM/API`
 
@@ -15,12 +15,14 @@ A lightweight ComfyUI node for calling OpenRouter, Featherless, and LithosAI cha
 Copy this folder into:
 
 ```text
-ComfyUI/custom_nodes/RM-Comfyui-LLM
+ComfyUI/custom_nodes/RM-LLM-0.4.0
 ```
 
-Restart ComfyUI and refresh the browser. The node is available under **RM/API → RM-LLM 0.3.3**.
+Restart ComfyUI and refresh the browser. The node is available under **RM/API → RM-LLM 0.4.0**.
 
 The package uses dependencies already provided by ComfyUI. It does not download models or install Python packages.
+
+This 0.4.0 copy uses ComfyUI extension hooks, graph events and node-owned widget callbacks. It does not modify another node, replace shared Run functions, or override node prototypes or socket-position methods. Its own response preview works without an output-display package. Sections change row visibility and native height while keeping input sockets and their order stable. Connected inputs remain visible when folded. Socket appearance follows the native renderer.
 
 ## Providers
 
@@ -30,15 +32,26 @@ The package uses dependencies already provided by ComfyUI. It does not download 
 | Featherless | `https://api.featherless.ai/v1` | `FEATHERLESS_API_KEY` |
 | LithosAI | `https://api.lithosai.cloud/v1` | `LITHOSAI_API_KEY` |
 
-Click **Model Name** to open the model catalog. Successful catalogs are cached under ComfyUI's user directory and reused after restart; **Refresh** checks the live catalog. If discovery is unavailable, enter a model ID in the picker or connect a native **PrimitiveString** node to **model_name**. The selected model's metadata loads its controls and media capabilities.
+Type in **Model Name** to filter an inline catalog with up to ten rows visible and scrolling for more. Selecting a model replaces the text. Otherwise your typed model ID remains; press Enter or leave the field to load its controls and media capabilities. You can also connect a native **PrimitiveString** node to **model_name**. Successful catalogs are cached under ComfyUI's user directory and reused after restart.
+
+The centered header shows the provider with its model count, followed by the selected model with its context and output limit. Provider and model names share a font size that adjusts to the available width.
+
+Featherless catalog pages are requested without an API key. Authentication remains enabled for model capability checks and generation, and catalog authentication for OpenRouter and LithosAI is unchanged.
+
+When no catalog is available, the dropdown shows a green download progress bar without numeric labels. Progress uses the reported total when available and an estimate otherwise; its tooltip shows download status. Simultaneous catalog requests share one download. Featherless page requests are spaced at least two seconds apart, and completed pages are retained separately under ComfyUI's user directory so an interrupted download can resume after restart. Progress polling reads local status only; it does not call the provider.
+
+If catalog retrieval fails, the dropdown tooltip shows **Try later** and uses the last successful catalog when available, or retained models marked as an incomplete catalog. Featherless HTTP 429 starts a cooldown of at least 10 minutes, or longer if requested by the provider. Focus **Model Name** again afterward to resume at the unfinished page. The UI does not wait through the cooldown, and restarting ComfyUI cannot bypass it. Other providers' catalog retry behavior is unchanged.
 
 ## API keys
 
 The node reads the key from the selected environment variable. Keys are never written to workflows.
 
-RM-LLM 0.3.3 has one masked API-key field and a **Set** button. **API Key System** controls the destination: **Environment variable** places it in the running ComfyUI process without administrator or `sudo` access; **Masked session key** keeps it only in server memory for the current session. The key is not written to disk or saved in workflows. Environment setup must be repeated after restarting ComfyUI.
+One masked API-key field and **Set** button serve all three providers. **API Key System** controls the destination:
 
-For persistent use, set the environment variable outside ComfyUI before starting it. The variable name can be changed in the node's **API Key System** section.
+- **Environment variable:** saves the key for the current operating-system user and makes it available immediately. RM-LLM restores it when first needed after a restart. Windows uses user environment variables; Linux uses `$XDG_CONFIG_HOME/rm-llm/environment.json` (normally `~/.config/rm-llm/environment.json`), with owner-only directory/file permissions of `700`/`600`. No administrator or `sudo` access is needed. These values are persistent, unencrypted user settings, outside the node package.
+- **Masked session key:** keeps the key only in server memory for the session; it is not saved to disk.
+
+**API Key (Key hidden. Never shared in workflows.)** labels the masked entry and **Set** button for both systems. Keys are never returned to the browser or included in model caches. Environment variables supplied by your launcher take precedence over saved values. On Linux the saved file is loaded by RM-LLM, not by unrelated terminal programs. Set each provider's key once using its default variable name shown above, or connect a custom variable name to `api_key_env`.
 
 ## Using the node
 
@@ -74,7 +87,9 @@ LithosAI currently reports text-only input because its published API documentati
 
 The node is designed for current ComfyUI installations with the standard `aiohttp`, NumPy, Pillow, PyTorch, and ComfyUI video APIs. The included PowerShell launcher is optional and Windows-specific; the node itself uses relative paths and environment variables.
 
-`RM_LLM_V2` remains registered as a legacy node for existing v2 workflows. New workflows should use `RM_LLM_V3` (displayed as **RM-LLM 0.3.3**).
+The frontend requires ComfyUI's graph-event and DOM-widget APIs (the installed frontend 1.49.6 provides these). Windows has been checked offline; Linux/macOS and live browser execution remain to be verified. Python 3.10 async timeout handling is included. The normal ComfyUI Run action prepares temporary masked-session tickets through widget callbacks. Saved workflow JSON contains no key or ticket; API exports contain no newly prepared session ticket. Headless/API-only runs should use environment-variable credentials.
+
+This local 0.4.0 copy registers separate node IDs and API routes so it can be tested alongside the existing package. Existing workflows are not changed. Add **RM-LLM 0.4.0** to test the new implementation.
 
 ## License
 

@@ -278,7 +278,7 @@ async def _request_stream(url, key, body, timeout, reader):
                 result = await reader(response.content, key, console)
                 complete = True
                 return result
-    except (aiohttp.ClientError, TimeoutError):
+    except (aiohttp.ClientError, asyncio.TimeoutError):
         raise RMError("Provider stream disconnected or timed out. No automatic retry was made.") from None
     except (json.JSONDecodeError, UnicodeDecodeError):
         raise RMError("Provider returned an invalid streaming event. No automatic retry was made.") from None
