@@ -4,11 +4,11 @@ Bring OpenRouter, Featherless and LithosAI models into your ComfyUI workflows. C
 
 ## Features
 
-- **Model discovery:** search provider catalogues, reuse cached lists or enter a model ID when discovery is unavailable.
+- **Inline model search:** type to filter a scrollable catalogue or keep a manually entered model ID. Cached lists and recoverable downloads help when discovery is unavailable.
 - **Model-specific controls:** supported sampling settings, Thinking/Reasoning and known chat-template options.
 - **Creativity slider:** adjusts temperature and top_p together, with independent settings in Advanced.
 - **Images and video:** connect reference media where the provider and model support it. Unsupported media connections become N/A and are omitted from the request.
-- **Workflow connections:** connect prompts and settings from other nodes, with collapsible Model, Simple and Advanced sections.
+- **Native ComfyUI integration:** connect prompts and settings from other nodes, with collapsible Model, Simple and Advanced sections, stable sockets and a built-in response preview.
 - **Live console output:** stream generated text and returned reasoning as they arrive.
 - **Keys kept out of workflows:** masked key entry, environment-variable credentials and temporary session keys.
 - **Separate outputs:** generated text, returned reasoning and the full provider response, including usage when supplied.
@@ -35,9 +35,9 @@ Choose a provider and **API Key System**, paste your key into the masked **API K
 | Featherless | `FEATHERLESS_API_KEY` |
 | LithosAI | `LITHOSAI_API_KEY` |
 
-On the default branch, **Environment variable** sets the key in the running ComfyUI process. For persistence across restarts, configure the variable in your operating system or launcher before starting ComfyUI. **Masked session key** keeps it in server memory for that session only. Headless/API workflows should use environment variables.
+**Environment variable** saves the key for the current user and makes it available immediately and after restart. Windows uses user environment variables; Linux uses an owner-only configuration file under `$XDG_CONFIG_HOME/rm-llm` (normally `~/.config/rm-llm`). No administrator or sudo access is needed. Variables supplied by your launcher take precedence. **Masked session key** keeps the key in server memory for that session only. Headless/API workflows should use environment variables.
 
-Keys are excluded from saved workflows. Masking hides the entry on screen; it does not encrypt environment variables. Requests send the key to the selected API provider for authentication.
+Keys are excluded from saved workflows. Masking hides the entry on screen; it does not encrypt environment variables or the saved configuration file. Requests send the key to the selected API provider for authentication.
 
 ## Use
 
@@ -55,11 +55,13 @@ Keys are excluded from saved workflows. Masking hides the entry on screen; it do
 
 Available controls and media support depend on the selected provider's API metadata and documented capabilities. The same model may expose different features through different providers. LithosAI's current integration supports text input. Tool calls are returned as data; RM-LLM does not execute external tools.
 
-## Development and releases
+## Releases and compatibility
 
-The [development branch](https://github.com/RevenueMonkey/RM-Comfyui-LLM/tree/release/0.4.0) adds an inline model picker, improved catalogue recovery, persistent key setup and a frontend rebuilt around native ComfyUI hooks, with a built-in response preview. It has been tested locally on Windows and is awaiting merge in [pull request #1](https://github.com/RevenueMonkey/RM-Comfyui-LLM/pull/1); these changes are not yet included in the default installation above.
+See [GitHub Releases](https://github.com/RevenueMonkey/RM-Comfyui-LLM/releases) for downloads and the [dated changelog](CHANGELOG.md) for version details. Changelog dates record changes, not Registry publication dates.
 
-See the [dated changelog](https://github.com/RevenueMonkey/RM-Comfyui-LLM/blob/release/0.4.0/CHANGELOG.md) for version details. Changelog dates record changes, not Registry publication dates. Cross-platform runtime verification is still incomplete.
+The current node uses the ID `RM_LLM_040`. Older workflows using `RM_LLM_V3` or `RM_LLM_V2` are not automatically converted. Keep the older package if those workflows still need it; the new node has separate IDs and routes so both can coexist. For a separate installation, use a different folder name when cloning.
+
+The current implementation has been tested locally on Windows with ComfyUI frontend 1.49.6. It uses standard ComfyUI dependencies and native extension hooks. Linux/macOS runtime verification is still incomplete; the included PowerShell launcher is optional and Windows-specific.
 
 ## Support and license
 

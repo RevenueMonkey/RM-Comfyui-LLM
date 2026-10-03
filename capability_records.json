@@ -832,7 +832,7 @@
   },
   "Featherless": {
     "source": "https://featherless.ai/docs/completions",
-    "refreshed_at": "2026-10-02T13:25:58Z",
+    "refreshed_at": "2026-10-03T08:43:49Z",
     "parameters": {
       "presence_penalty": {
         "type": "number",
@@ -971,7 +971,7 @@
   },
   "LithosAI": {
     "source": "https://docs.lithosai.com/openapi.yaml",
-    "refreshed_at": "2026-09-30T00:00:00Z",
+    "refreshed_at": "2026-10-03T08:47:08Z",
     "parameters": {
       "max_tokens": {
         "type": "integer",

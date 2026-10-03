@@ -1,6 +1,6 @@
 """External, single-request Responses transport for tool-using workflow agents.
 
-The caller owns tool execution and retries. RM_LLM_V2 can use this same transport.
+The caller owns tool execution and retries. RM_LLM_040 uses this same transport.
 """
 import copy
 import json

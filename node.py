@@ -246,7 +246,7 @@ async def request_completion(provider, url, key, body, timeout):
             await asyncio.sleep(delay)
 
 
-class RMLLM:
+class ChatCompletionNode:
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -290,7 +290,7 @@ class RMLLM:
             raise RMError("credential_source must be Environment variable or Masked session key.")
         if credential_source == "Masked session key" and not key_ticket:
             raise RMError("API Key Needed!")
-        key = consume_key(provider, key_ticket, api_key_env)
+        key = consume_key(provider, key_ticket if credential_source == "Masked session key" else "", api_key_env)
         try:
             parameters = json.loads(parameters_json)
         except json.JSONDecodeError:
@@ -332,7 +332,7 @@ def creativity_to_sampling(creativity):
     }
 
 
-class RMLLMV2(RMLLM):
+class ConversationNode(ChatCompletionNode):
     @classmethod
     def INPUT_TYPES(cls):
         inputs = super().INPUT_TYPES()
@@ -348,9 +348,16 @@ class RMLLMV2(RMLLM):
     async def generate(self, parameters_json, creativity=None, agent_request=None, dynprompt=None, **kwargs):
         model_info = {"provider": kwargs.get("provider"), "model": kwargs.get("model_name")}
         context = get_executing_context()
+        if context is not None and dynprompt is not None:
+            inputs = dynprompt.get_node(context.node_id)["inputs"]
+            defaults = {provider_info(provider)[1] for provider in ("OpenRouter", "Featherless", "LithosAI")}
+            # A runtime provider connection owns its default key selection.
+            # Explicitly connected/custom environment names keep their meaning.
+            if isinstance(inputs.get("provider"), list) and not isinstance(inputs.get("api_key_env"), list) and kwargs.get("api_key_env") in defaults:
+                kwargs["api_key_env"] = provider_info(kwargs["provider"])[1]
         if context is not None:
             display_id = dynprompt.get_display_node_id(context.node_id) if dynprompt is not None else context.node_id
-            PromptServer.instance.send_sync("rm-llm-model", {"node": display_id, "model_info": model_info}, PromptServer.instance.client_id)
+            PromptServer.instance.send_sync("rm040-llm-model", {"node": display_id, "model_info": model_info}, PromptServer.instance.client_id)
         if creativity is not None:
             try:
                 parameters = json.loads(parameters_json)
@@ -401,8 +408,8 @@ class RMLLMV2(RMLLM):
         return result
 
 
-class RMLLMV3(RMLLMV2):
-    """Current RM-LLM 0.3.3 node with LithosAI enabled."""
+class RMLLM040(ConversationNode):
+    """RM-LLM 0.4.0; self-contained provider and frontend integration."""
 
     DESCRIPTION = (
         "OpenRouter, Featherless, and LithosAI LLM calls with live model discovery, "
