@@ -98,8 +98,8 @@ def merge_delta(target, delta):
             target[name] = target.get(name, "") + value
         elif isinstance(value, list):
             if name == "content" and isinstance(target.get(name), str):
-                text = "".join(part.get("text", "") for part in value if isinstance(part, dict))
-                target[name] = target.get(name, "") + text
+                previous = target[name]
+                target[name] = ([{"type": "text", "text": previous}] if previous else []) + value
             else:
                 target.setdefault(name, []).extend(value)
         else:
@@ -145,6 +145,8 @@ async def read_completion_stream(content, key, console):
                         choice[name] = value
             suffix = f" (choice {index})" if index else ""
             reasoning = delta.get("reasoning") or delta.get("reasoning_content")
+            if not reasoning and isinstance(delta.get("content"), list):
+                reasoning = "".join(item.get("text", "") for part in delta["content"] if isinstance(part, dict) and part.get("type") == "thinking" for item in part.get("thinking", []) if isinstance(item, dict))
             if not reasoning:
                 reasoning = "".join(item.get("text", "") for item in delta.get("reasoning_details", []) if isinstance(item, dict))
             console.write("Reasoning" + suffix, reasoning)
@@ -255,8 +257,9 @@ async def stream_heartbeat(console, interval=15):
             console.write("Status", f"Request still awaiting provider output ({time.monotonic() - started:.0f}s elapsed).\n")
 
 
-async def _request_stream(url, key, body, timeout, reader):
-    headers = {"User-Agent": "RM-LLM/1.0", "Accept": "text/event-stream", "Authorization": "Bearer " + key}
+async def _request_stream(url, key, body, timeout, reader, *, extra_headers=None):
+    headers = {"User-Agent": "RM-LLM/1.0", "Accept": "text/event-stream"}
+    headers.update(extra_headers if extra_headers is not None else {"Authorization": "Bearer " + key})
     console = ConsoleStream(key)
     complete = False
     heartbeat = asyncio.create_task(stream_heartbeat(console))

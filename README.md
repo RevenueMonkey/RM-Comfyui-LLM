@@ -1,6 +1,30 @@
 # RM-ComfyUI-LLM
 
-Bring OpenRouter, Featherless and LithosAI models into your ComfyUI workflows. Choose a model, connect your prompts and use the controls that model supports.
+At RM, we were tired of the existing LLM nodes and found them all lacking, so we made our own. We update regularly — any feature you want, just ask.
+
+Bring models from twelve API providers into your ComfyUI workflows. Choose a model, connect your prompts and use the controls that model supports.
+
+## Supported APIs
+
+Ten major LLM APIs in one node, plus two more for exploring unusual models and fast inference:
+
+| Provider | What you can access |
+|---|---|
+| OpenAI | OpenAI chat and reasoning models |
+| Google Gemini | Gemini models, with image/video inputs where supported |
+| Anthropic | Claude through its native Messages API |
+| OpenRouter | Models from multiple developers through one API |
+| DeepSeek | DeepSeek chat and reasoning models |
+| Groq | Hosted models with a focus on fast inference |
+| Mistral AI | Mistral chat and vision models |
+| xAI | Grok models |
+| Together AI | Hosted open models |
+| Fireworks AI | Public serverless models and manually entered account model IDs |
+
+- **[Featherless](https://featherless.ai/):** explore a catalogue advertised at **40,000+ models**, including obscure community fine-tunes, creative-writing models and uncensored variants. Browse its [model catalogue](https://featherless.ai/models) to see what is available.
+- **[LithosAI](https://www.lithosai.com/):** built for ultra-fast inference. Actual speed depends on the model and workload; RM-LLM's current LithosAI integration supports text input.
+
+These are supported integrations, not a measured ComfyUI popularity ranking. Model availability and features depend on your provider and account.
 
 ## Features
 
@@ -34,6 +58,15 @@ Choose a provider and **API Key System**, paste your key into the masked **API K
 | OpenRouter | `OPENROUTER_API_KEY` |
 | Featherless | `FEATHERLESS_API_KEY` |
 | LithosAI | `LITHOSAI_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` |
+| Google Gemini | `GEMINI_API_KEY` |
+| Anthropic | `ANTHROPIC_API_KEY` |
+| DeepSeek | `DEEPSEEK_API_KEY` |
+| Groq | `GROQ_API_KEY` |
+| Mistral AI | `MISTRAL_API_KEY` |
+| xAI | `XAI_API_KEY` |
+| Together AI | `TOGETHER_API_KEY` |
+| Fireworks AI | `FIREWORKS_API_KEY` |
 
 **Environment variable** saves the key for the current user and makes it available immediately and after restart. Windows uses user environment variables; Linux uses an owner-only configuration file under `$XDG_CONFIG_HOME/rm-llm` (normally `~/.config/rm-llm`). No administrator or sudo access is needed. Variables supplied by your launcher take precedence. **Masked session key** keeps the key in server memory for that session only. Headless/API workflows should use environment variables.
 
@@ -55,13 +88,25 @@ Keys are excluded from saved workflows. Masking hides the entry on screen; it do
 
 Available controls and media support depend on the selected provider's API metadata and documented capabilities. The same model may expose different features through different providers. LithosAI's current integration supports text input. Tool calls are returned as data; RM-LLM does not execute external tools.
 
+## Provider differences
+
+- Claude uses its native Messages API; Gemini uses native GenerateContent. Their response JSON includes the preserved native response under `provider_response`, alongside the usual text/reasoning outputs.
+- Model controls combine live metadata with reviewed API documentation. Where metadata does not advertise media, only documented model families are enabled; unknown model names are not assumed to support vision. New model families may need a capability-record update.
+- Catalogues list supported chat/text models. Fireworks lists public serverless models; custom account model IDs can be entered manually. Together model metadata comes from its catalogue because it does not expose the same per-model lookup as other providers.
+- Thinking/Reasoning appears where supported. Models with mandatory reasoning cannot be switched off. Advanced native thinking controls and the simple toggle are alternatives; do not set both. Reasoning text is available only when returned by the provider.
+- Anthropic requires an output token limit: RM-LLM supplies 4096 when omitted, capped by its advertised limit. Manually budgeted thinking defaults to 1024 only when explicitly enabled, and requires a larger output limit. Models advertising adaptive thinking use it instead.
+- Anthropic's paired Creativity slider is unavailable because its sampling controls cannot always be combined; use an individual Advanced control. Other models without both sampling controls also disable the slider.
+- Gemini accepts inline image/video data up to its request-size limit; this integration does not upload files to provider storage. Large media must be resized or shortened.
+- The existing `agent_request` conversation transport remains OpenRouter-only. Other providers can return tool calls through `response_json`; RM-LLM does not execute them.
+- API contracts and model capabilities are documented in [provider sources](PROVIDER_SOURCES.md). No provider SDKs or additional custom nodes are required.
+
 ## Releases and compatibility
 
 See [GitHub Releases](https://github.com/RevenueMonkey/RM-Comfyui-LLM/releases) for downloads and the [dated changelog](CHANGELOG.md) for version details. Changelog dates record changes, not Registry publication dates.
 
-The current node uses the ID `RM_LLM_040`. Older workflows using `RM_LLM_V3` or `RM_LLM_V2` are not automatically converted. Keep the older package if those workflows still need it; the new node has separate IDs and routes so both can coexist. For a separate installation, use a different folder name when cloning.
+The current node uses the ID `RM_LLM_050`. Older workflows using `RM_LLM_040`, `RM_LLM_V3` or `RM_LLM_V2` are not automatically converted. Keep the older package if those workflows still need it; the new node has separate IDs and routes so both can coexist. For a separate installation, use a different folder name when cloning.
 
-The current implementation has been tested locally on Windows with ComfyUI frontend 1.49.6. It uses standard ComfyUI dependencies and native extension hooks. Linux/macOS runtime verification is still incomplete; the included PowerShell launcher is optional and Windows-specific.
+The current node and socket dragging have been user-tested on Windows. Provider adapters have offline contract tests; live testing of every provider/account combination is not complete. The node uses standard ComfyUI dependencies and native extension hooks. Linux/macOS runtime verification is still incomplete; the included PowerShell launcher is optional and Windows-specific.
 
 ## Support and license
 
