@@ -2,6 +2,15 @@
 
 Dates identify the recorded changes, not Comfy Registry publication timestamps.
 
+## [0.6.0] - 2026-10-04
+
+- Give api_key_system the same inline searchable picker, reusing the Provider picker while preserving the two credential modes and key storage.
+- Replace the Provider select with the same inline searchable list styling as Model: up to ten visible rows, provider subtitles and keyboard selection; stored provider names remain unchanged.
+
+- Add a provider status line below request_timeout_seconds, with a coloured circle, short updates/errors and explanatory tooltips; use existing request results only.
+- Preserve the existing Set button; separate provider status from key storage, including authentication failures, rate limits, model availability, service errors, credits and access restrictions.
+- Ignore stale request results after selection or key changes; retain native ComfyUI execution diagnostics and existing node IDs/connections.
+
 ## [0.5.1] - 2026-10-04
 
 - Use lowercase underscore input labels, mark model controls `[API]`, and supply a default user prompt for new nodes.

@@ -1,6 +1,7 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { creativityToSampling, samplingToCreativity } from "./sampling.js";
+import { providerStatus } from "./provider_status.js";
 
 const states = new WeakMap();
 const nodeDefinitions = new Map();
@@ -36,6 +37,12 @@ css.textContent = `
 .rm050-llm .rm050-key-status-ready { border-color:#35b56a; background:#194d2d; }
 .rm050-llm .rm050-key-status-missing { border-color:#d45b5b; background:#542424; }
 .rm050-llm .rm050-key-status-unknown { border-color:#777; }
+.rm050-provider-status { display:flex; gap:8px; align-items:center; font-size:12px; line-height:20px; color:var(--input-text,#ddd); }
+.rm050-provider-status::before { content:""; width:10px; height:10px; flex:none; border-radius:50%; background:#888; }
+.rm050-provider-status[data-tone=ready]::before { background:#35b56a; }
+.rm050-provider-status[data-tone=error]::before { background:#e06464; }
+.rm050-provider-status[data-tone=warning]::before { background:#e5b65c; }
+.rm050-provider-status[data-tone=busy]::before { background:#4fa7e8; }
 .rm050-llm .rm050-param { border-bottom:1px solid #444; padding:3px 0 7px; }
 .rm050-llm .rm050-param label { display:flex; gap:5px; align-items:center; }
 .rm050-llm .rm050-param textarea { min-height:45px; }
@@ -106,19 +113,28 @@ function setValue(node, name, val) {
     if (name === "parameters_json" && field && document.activeElement !== field) field.value = val;
     if (name === "model_name") states.get(node)?.updateModelHeading?.();
     const state = states.get(node);
+    if (changed && ["provider", "model_name", "credential_source", "api_key_env"].includes(name)) state?.resetProviderStatus?.();
     if (changed && ["provider", "model_name"].includes(name) && state?.budgetBars) displayBudgetUsage(state, null);
     node.graph?.setDirtyCanvas(true, true);
 }
 
-async function call(action, body) {
-    const response = await api.fetchApi(`/rm_llm_050/${action}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-RM-LLM": "1" },
-        body: JSON.stringify(body),
-    });
-    const data = await response.json();
-    if (!response.ok || data.error) throw new Error(data.error || `RM-LLM HTTP ${response.status}`);
-    return data;
+async function call(action, body, state) {
+    const context = state?.statusContext;
+    state?.beginProviderRequest?.(action);
+    try {
+        const response = await api.fetchApi(`/rm_llm_050/${action}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-RM-LLM": "1" },
+            body: JSON.stringify(body),
+        });
+        const data = await response.json();
+        if (!response.ok || data.error) throw new Error(data.error || `RM-LLM HTTP ${response.status}`);
+        if (context === state?.statusContext) state?.reportProviderStatus?.(data.warning || null, action);
+        return data;
+    } catch (error) {
+        if (context === state?.statusContext) state?.reportProviderStatus?.(error, action);
+        throw error;
+    }
 }
 
 function note(state, text, error = false) {
@@ -247,7 +263,7 @@ function layoutSections(state, fit = false) {
     const node = state.node;
     const sections = node.properties.rm_llm_sections ||= { model: false, standard: false, advanced: false };
     const topRows = ["model_heading"];
-    const modelRows = ["provider", "model_name", "credential_source", "api_key_env", "section_0", "timeout_seconds", "section_4"];
+    const modelRows = ["provider", "model_name", "credential_source", "api_key_env", "section_0", "timeout_seconds", "provider_status", "section_4"];
     const simpleRows = ["image", "video", "system_prompt", "user_prompt", "creativity", templatePrefix + "enable_thinking", "reasoning.enabled"];
     const advancedOrder = ["input_budget", "thinking_budget", "output_budget", "temperature", "top_p", "agent_request", "stream_options", ...state.parameterRows, "parameters_json", "section_5"];
     const advanced = [...new Set([...advancedOrder, ...state.rows.keys()])].filter(name => !topRows.includes(name) && !simpleRows.includes(name) && !modelRows.includes(name) && !name.startsWith("heading_") && name !== "console_output");
@@ -274,6 +290,9 @@ function layoutSections(state, fit = false) {
         row.element.classList.toggle("rm050-compact", row.rmCompact);
         row.element.dataset.section = section;
         row.element.style.minHeight = `${row.hidden ? 0 : row.options.getMinHeight()}px`;
+    }
+    for (const [name, input, picker] of [["provider", state.provider, state.providerPicker], ["credential_source", state.mode, state.modePicker]]) {
+        if (input.disabled || state.rows.get(name)?.hidden || state.rows.get(name)?.rmCompact) picker?.close(false);
     }
     if (state.model.disabled || state.rows.get("model_name")?.hidden || state.rows.get("model_name")?.rmCompact) state.modelPicker?.close(false);
     // Reinsert existing widgets through the native API: it tells the renderer
@@ -725,7 +744,7 @@ async function loadCapabilities(state) {
     syncSockets(state);
     note(state, "Discovering model capabilities…");
     try {
-        const caps = await call("capabilities", { ...selection(state), provider, model });
+        const caps = await call("capabilities", { ...selection(state), provider, model }, state);
         if (state.revision !== revision) return;
         state.caps = caps;
         syncSockets(state);
@@ -852,7 +871,7 @@ function installModelPicker(state) {
             if (provider === value(state.node, "provider") && !state.models[provider]?.length) render();
         }, () => !removed);
         try {
-            const response = await call("models", { ...selection(state), provider });
+            const response = await call("models", { ...selection(state), provider }, state);
             if (removed) return;
             state.models[provider] = response.models;
             state.updateCatalogCount?.(provider, response.models.length);
@@ -907,6 +926,84 @@ function installModelPicker(state) {
         removed = true; close(false);
         for (const load of loads.values()) load.stop?.();
     });
+}
+
+function installChoicePicker(state, name, input, choices, display, apply) {
+    const dropdown = element("div", undefined, "rm050-model-dropdown");
+    const list = element("div", undefined, "rm050-model-options");
+    list.id = `rm050-${name}-options-${++modelListSequence}`;
+    list.setAttribute("role", "listbox");
+    list.setAttribute("aria-label", name);
+    dropdown.append(list);
+    dropdown.hidden = true;
+    state.rows.get(name).element.append(dropdown);
+    input.setAttribute("role", "combobox");
+    input.setAttribute("aria-autocomplete", "list");
+    input.setAttribute("aria-controls", list.id);
+    input.setAttribute("aria-expanded", "false");
+    let matches = [], active = -1;
+    const close = (fit = true) => {
+        const changed = !dropdown.hidden;
+        dropdown.hidden = true;
+        input.setAttribute("aria-expanded", "false");
+        input.removeAttribute("aria-activedescendant");
+        state[`${name}DropdownHeight`] = 0;
+        if (fit && changed) layoutSections(state, true);
+    };
+    const commit = (text = input.value.trim()) => {
+        const selected = choices.find(choice => choice.toLowerCase() === text.toLowerCase());
+        input.value = selected || value(state.node, name);
+        close();
+        if (selected && selected !== value(state.node, name)) apply();
+    };
+    const show = (query = "") => {
+        if (input.disabled) return;
+        matches = choices.filter(choice => display(choice).toLowerCase().includes(query.toLowerCase().trim()));
+        active = -1;
+        input.removeAttribute("aria-activedescendant");
+        list.replaceChildren();
+        list.scrollTop = 0;
+        matches.forEach((provider, index) => {
+            const option = element("button", display(provider), "rm050-model-option");
+            option.type = "button";
+            option.tabIndex = -1;
+            option.id = `${list.id}-${index}`;
+            option.setAttribute("role", "option");
+            option.setAttribute("aria-selected", "false");
+            option.onpointerdown = event => { event.preventDefault(); event.stopPropagation(); };
+            option.onclick = () => commit(provider);
+            list.append(option);
+        });
+        if (!matches.length) list.append(element("div", "No matching options", "rm050-model-empty"));
+        dropdown.hidden = false;
+        input.setAttribute("aria-expanded", "true");
+        state[`${name}DropdownHeight`] = Math.max(1, Math.min(10, matches.length)) * 32 + 6;
+        layoutSections(state, true);
+    };
+    input.onfocus = () => { show(); input.select(); };
+    input.onclick = () => { if (dropdown.hidden) show(); };
+    input.oninput = () => show(input.value);
+    input.onblur = () => commit();
+    input.onkeydown = event => {
+        if (event.key === "Escape") {
+            event.preventDefault(); event.stopPropagation();
+            input.value = value(state.node, name); close();
+        } else if (event.key === "Enter") {
+            event.preventDefault(); event.stopPropagation();
+            commit(active >= 0 ? matches[active] : input.value.trim());
+        } else if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+            event.preventDefault(); event.stopPropagation();
+            if (dropdown.hidden) show();
+            if (!matches.length) return;
+            active = active < 0 ? (event.key === "ArrowDown" ? 0 : matches.length - 1) : (active + (event.key === "ArrowDown" ? 1 : -1) + matches.length) % matches.length;
+            [...list.children].forEach((option, index) => option.setAttribute("aria-selected", String(index === active)));
+            const option = list.children[active];
+            input.setAttribute("aria-activedescendant", option.id);
+            option.scrollIntoView({ block: "nearest" });
+        }
+    };
+    list.onwheel = event => event.stopPropagation();
+    return { close };
 }
 
 function addModelHeading(state) {
@@ -994,10 +1091,11 @@ function setup(node, nodeData) {
         state.bindings.set(name, input);
         return input;
     }
-    state.provider = document.createElement("select");
-    for (const p of Object.keys(defaults)) {
-        state.provider.add(new Option(`${p} — ${providerSubtitles[p]}`, p));
-    }
+    state.provider = document.createElement("input");
+    state.provider.type = "text"; state.provider.className = "rm050-wide";
+    state.provider.autocomplete = "off"; state.provider.spellcheck = false;
+    state.provider.placeholder = "Type or select a provider";
+    state.provider.setAttribute("aria-label", "provider");
     label("provider", state.provider);
     state.bindings.set("provider", state.provider);
     state.model = document.createElement("input"); state.model.className = "rm050-wide";
@@ -1006,9 +1104,10 @@ function setup(node, nodeData) {
     state.model.setAttribute("aria-label", "model_name");
     state.bindings.set("model_name", state.model);
     label("model_name", state.model);
-    state.mode = document.createElement("select");
+    state.mode = document.createElement("input");
+    state.mode.type = "text"; state.mode.className = "rm050-wide";
+    state.mode.autocomplete = "off"; state.mode.spellcheck = false;
     state.mode.setAttribute("aria-label", "api_key_system");
-    for (const m of ["Environment variable", "Masked session key"]) state.mode.add(new Option(m, m));
     label("api_key_system", state.mode);
     state.bindings.set("credential_source", state.mode);
     state.env = label("api_key_environment_variable_name", bound("api_key_env"));
@@ -1017,20 +1116,56 @@ function setup(node, nodeData) {
     password.type = "password"; password.autocomplete = "off"; password.placeholder = "Paste API key";
     password.setAttribute("aria-label", "API key"); password.spellcheck = false;
     const setKey = element("button", "Set");
+    const providerStatusText = element("div", "Not connected", "rm050-provider-status");
+    providerStatusText.setAttribute("role", "status");
     keyRow.append(password, setKey);
     label("api_key (Key hidden. Never shared in workflows.)", keyRow);
+    const requestStatuses = new Map();
+    const renderProviderStatus = () => {
+        const statuses = [...requestStatuses.values()];
+        const current = statuses.filter(status => ["error", "warning"].includes(status.tone)).at(-1)
+            || statuses.at(-1) || { tone: "unknown", text: "Not connected", detail: "No active provider request or result yet. API connections are made per request; the Set button indicates key availability." };
+        providerStatusText.textContent = current.text;
+        providerStatusText.dataset.tone = current.tone;
+        providerStatusText.title = current.detail;
+    };
+    state.resetProviderStatus = () => {
+        state.statusContext = (state.statusContext || 0) + 1;
+        requestStatuses.clear();
+        renderProviderStatus();
+    };
+    state.reportProviderStatus = (error, scope) => {
+        requestStatuses.delete(scope);
+        const completed = { models: "Catalogue loaded", capabilities: "Model settings loaded", generation: "Request complete", ticket: "Request prepared" };
+        const status = error ? providerStatus(error) || { tone: "error", text: "Request failed", detail: "See the node message or ComfyUI error report for details." }
+            : { tone: "ready", text: completed[scope] || "Request complete", detail: scope === "generation" ? "The model request completed successfully." : "The operation completed. Cached catalogue or capability data does not verify authentication." };
+        requestStatuses.set(scope, status);
+        renderProviderStatus();
+    };
+    state.beginProviderRequest = scope => {
+        const pending = { models: "Loading catalogue…", capabilities: "Loading model settings…", generation: "Processing…", ticket: "Preparing request…" };
+        requestStatuses.delete(scope);
+        requestStatuses.set(scope, { tone: "busy", text: pending[scope] || "Requesting…", detail: "Waiting for this operation to finish." });
+        renderProviderStatus();
+    };
+    const showCredentialAvailability = present => {
+        requestStatuses.delete("credentials");
+        if (!present) requestStatuses.set("credentials", providerStatus("API Key Needed!"));
+        renderProviderStatus();
+    };
     const setKeyStatus = (status) => {
         setKey.classList.remove("rm050-key-status-ready", "rm050-key-status-missing", "rm050-key-status-unknown");
         setKey.classList.add(`rm050-key-status-${status}`);
         setKey.setAttribute("aria-label", status === "ready" ? "API key available" : status === "missing" ? "API key needed" : "API key status unknown");
     };
     const refreshCredentialStatus = async () => {
-        const provider = state.provider.value;
-        const credentialSource = state.mode.value;
+        const provider = value(node, "provider");
+        const credentialSource = value(node, "credential_source");
         const revision = state.credentialRevision = (state.credentialRevision || 0) + 1;
         setKeyStatus("unknown");
         if (credentialSource === "Masked session key" && !state.sessions[provider]) {
             setKeyStatus("missing");
+            showCredentialAvailability(false);
             return;
         }
         try {
@@ -1042,6 +1177,7 @@ function setup(node, nodeData) {
             });
             if (revision !== state.credentialRevision) return;
             setKeyStatus(result.key_present ? "ready" : "missing");
+            showCredentialAvailability(result.key_present);
         } catch (error) {
             if (revision === state.credentialRevision) {
                 setKeyStatus("missing");
@@ -1055,16 +1191,16 @@ function setup(node, nodeData) {
         keyRow.hidden = false;
         const row = state.rows.get("section_0");
         if (row) layoutSections(state);
-        state.env.disabled = state.mode.value === "Masked session key" || connected(node, "api_key_env");
+        state.env.disabled = value(node, "credential_source") === "Masked session key" || connected(node, "api_key_env");
         void refreshCredentialStatus();
     };
-    state.mode.onchange = () => { setValue(node, "credential_source", state.mode.value); updateMode(); };
+    state.applyCredentialSource = () => { setValue(node, "credential_source", state.mode.value); updateMode(); };
     setKey.onclick = async () => {
-        const provider = state.provider.value;
+        const provider = value(node, "provider");
         setKey.disabled = true;
         try {
             const old = state.sessions[provider];
-            if (state.mode.value === "Masked session key") {
+            if (value(node, "credential_source") === "Masked session key") {
                 const result = await call("key", { provider, key: password.value });
                 state.sessions[provider] = result.session;
                 if (old) await call("key", { provider, session: old, clear: true });
@@ -1079,6 +1215,7 @@ function setup(node, nodeData) {
                     : `${result.environment_variable} set for this ComfyUI process only. Restart ComfyUI to enable persistent setup, then set the key again.`);
             }
             password.value = "";
+            state.resetProviderStatus();
             updateMode();
         } catch (error) { note(state, error.message, true); }
         finally { setKey.disabled = false; }
@@ -1091,9 +1228,10 @@ function setup(node, nodeData) {
     state.controls = element("div"); panel.append(state.controls);
     state.timeout = label("request_timeout_seconds", bound("timeout_seconds"));
     state.timeout.type = "number"; state.timeout.min = "10"; state.timeout.max = "3600";
-    state.status = element("div", "Ready. Model weights remain hosted by the provider.", "rm050-note"); panel.append(state.status);
+    panel.append(providerStatusText);
+    state.status = element("div", "", "rm050-note"); panel.append(state.status);
     state.output = document.createElement("textarea"); state.output.readOnly = true; state.output.placeholder = "Response preview"; panel.append(state.output);
-    const displayRows = new Map([[keyRow, "section_0"], [state.status, "section_4"], [state.output, "section_5"]]);
+    const displayRows = new Map([[keyRow, "section_0"], [providerStatusText, "provider_status"], [state.status, "section_4"], [state.output, "section_5"]]);
     for (const child of [...panel.children]) {
         if (child.parentElement !== panel || child === state.controls || child === state.capInfo) continue;
         const children = [child];
@@ -1101,7 +1239,7 @@ function setup(node, nodeData) {
         const control = children.at(-1);
         const name = [...state.bindings].find(([, el]) => el === control)?.[0] || displayRows.get(control);
         const multiline = control.tagName === "TEXTAREA";
-        addRow(state, name, children, name === "model_name" ? () => 58 + (state.modelDropdownHeight || 0) : multiline ? 108 : control === keyRow ? 64 : child.classList.contains("rm050-note") ? 36 : 58, multiline);
+        addRow(state, name, children, ["provider", "credential_source"].includes(name) ? () => 58 + (state[`${name}DropdownHeight`] || 0) : name === "model_name" ? () => 58 + (state.modelDropdownHeight || 0) : multiline ? 108 : control === keyRow ? 64 : name === "provider_status" ? 28 : child.classList.contains("rm050-note") ? 36 : 58, multiline);
     }
     state.console = document.createElement("input");
     state.console.type = "checkbox";
@@ -1138,6 +1276,8 @@ function setup(node, nodeData) {
     addBudgets(state);
     addModelHeading(state);
     installModelPicker(state);
+    state.providerPicker = installChoicePicker(state, "provider", state.provider, Object.keys(defaults), p => `${p} — ${providerSubtitles[p]}`, () => state.applyProvider());
+    state.modePicker = installChoicePicker(state, "credential_source", state.mode, ["Environment variable", "Masked session key"], mode => mode, () => state.applyCredentialSource());
     installExecutionWidgets(state);
     state.sync = () => {
         state.validators.clear();
@@ -1145,8 +1285,10 @@ function setup(node, nodeData) {
         setValue(node, "endpoint", "Auto");
         state.updateModelHeading?.();
         state.provider.value = value(node, "provider");
+        state.providerPicker.close();
         state.modelPicker.sync();
         state.mode.value = value(node, "credential_source");
+        state.modePicker.close();
         state.env.value = value(node, "api_key_env");
         state.system.value = value(node, "system_prompt"); state.user.value = value(node, "user_prompt");
         state.timeout.value = value(node, "timeout_seconds");
@@ -1164,7 +1306,7 @@ function setup(node, nodeData) {
         layoutSections(state);
         if (value(node, "model_name") || connected(node, "model_name") || connected(node, "provider")) void loadCapabilities(state);
     };
-    state.provider.onchange = () => {
+    state.applyProvider = () => {
         ++state.revision;
         setValue(node, "provider", state.provider.value);
         setValue(node, "api_key_env", defaults[state.provider.value]);
@@ -1213,8 +1355,11 @@ function installExecutionWidgets(state) {
             throw new Error("RM-LLM: use Environment variable for a provider determined during execution.");
         }
         const session = state.sessions[provider];
-        if (!session) throw new Error("RM-LLM: API Key Needed!");
-        const result = await call("ticket", { provider, session });
+        if (!session) {
+            state.reportProviderStatus?.("API Key Needed!", "ticket");
+            throw new Error("RM-LLM: API Key Needed!");
+        }
+        const result = await call("ticket", { provider, session }, state);
         return result.ticket;
     };
     state.disposers.push(() => { queued = false; });
@@ -1364,13 +1509,33 @@ app.registerExtension({
             }
         });
         api.addEventListener("executed", ({ detail }) => {
-            if (detail?.node != null && detail.output) receiveOutput(detail.node, detail.output);
+            if (detail?.node != null && detail.output) {
+                receiveOutput(detail.node, detail.output);
+                const state = states.get(executionNode(app.rootGraph, detail.node));
+                if (state?.executionContext === state?.statusContext && state?.executionPrompt === detail.prompt_id)
+                    state?.reportProviderStatus?.(null, "generation");
+            }
+        });
+        api.addEventListener("execution_error", ({ detail }) => {
+            const state = states.get(executionNode(app.rootGraph, detail?.node_id));
+            if (state && state.executionContext === state.statusContext && state.executionPrompt === detail.prompt_id)
+                state.reportProviderStatus?.(detail.exception_message, "generation");
+        });
+        api.addEventListener("execution_interrupted", ({ detail }) => {
+            const state = states.get(executionNode(app.rootGraph, detail?.node_id));
+            if (state && state.executionContext === state.statusContext && state.executionPrompt === detail.prompt_id)
+                state.reportProviderStatus?.("Request cancelled", "generation");
         });
         api.addEventListener("executing", ({ detail }) => {
             const id = typeof detail === "object" ? detail?.node : detail;
             if (id == null) return;
             const node = executionNode(app.rootGraph, id);
             const state = node && states.get(node);
+            if (state) {
+                state.executionContext = state.statusContext;
+                state.executionPrompt = detail?.prompt_id;
+                state.beginProviderRequest?.("generation");
+            }
             if (state && (connected(node, "model_name") || connected(node, "provider"))) {
                 state.runtimeModel = null;
                 void loadCapabilities(state);

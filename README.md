@@ -105,6 +105,14 @@ For example, budgets of **2048 input**, **1024 thinking** and **512 output** mak
 
 Controls marked `[API]` are provider/model controls, drawn from metadata or documented capabilities. Budgets and creativity are local convenience controls.
 
+Provider selection uses an inline searchable list like Model, showing up to ten entries at once. Search by provider name or subtitle, then click or press Enter to select. Provider connections continue to use the plain supported provider name. `api_key_system` uses the same picker for Environment variable and Masked session key.
+
+### Key and provider status
+
+A provider status line below `request_timeout_seconds` uses a coloured circle: grey ?Not connected? before requests, blue while loading or processing, green after completion, amber for temporary limits or unavailability, and red for authentication or other request errors. Hover for a short explanation. It reports catalogue/model updates and generation results using existing requests only.
+
+The **Set** button keeps its existing key-storage colours. A stored key does not prove authentication. Changing the provider, model or credential selection resets the provider status. Detailed execution errors remain available in ComfyUI.
+
 ### API behaviour
 
 - Claude uses its native Messages API; Gemini uses native GenerateContent. Their response JSON includes the preserved native response under `provider_response`, alongside the usual text/reasoning outputs.
@@ -121,7 +129,7 @@ Controls marked `[API]` are provider/model controls, drawn from metadata or docu
 
 See [GitHub Releases](https://github.com/RevenueMonkey/RM-Comfyui-LLM/releases) for downloads and the [dated changelog](CHANGELOG.md) for version details. Changelog dates record changes, not Registry publication dates.
 
-The current node uses the ID `RM_LLM_050`; the 0.5.1 patch keeps this ID and the existing routes/cache so 0.5.0 workflows remain compatible. Older workflows using `RM_LLM_040`, `RM_LLM_V3` or `RM_LLM_V2` are not automatically converted. Keep the older package if those workflows still need it; the new node has separate IDs and routes so both can coexist. For a separate installation, use a different folder name when cloning.
+The current node uses the ID `RM_LLM_050`; 0.6.0 keeps this ID and the existing routes/cache so 0.5.0 workflows remain compatible. Older workflows using `RM_LLM_040`, `RM_LLM_V3` or `RM_LLM_V2` are not automatically converted. Keep the older package if those workflows still need it; the new node has separate IDs and routes so both can coexist. For a separate installation, use a different folder name when cloning.
 
 The current node and socket dragging have been user-tested on Windows. Provider adapters have offline contract tests; live testing of every provider/account combination is not complete. The node uses standard ComfyUI dependencies and native extension hooks. Linux/macOS runtime verification is still incomplete; the included PowerShell launcher is optional and Windows-specific.
 

@@ -441,7 +441,7 @@ class ConversationNode(ChatCompletionNode):
 
 
 class RMLLM050(ConversationNode):
-    """RM-LLM 0.5.1; compatible patch with token budgets and usage bars."""
+    """RM-LLM 0.6.0; compatible IDs with provider request status."""
 
     DESCRIPTION = (
         "Twelve LLM API providers with model discovery, "
