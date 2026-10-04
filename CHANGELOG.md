@@ -2,6 +2,18 @@
 
 Dates identify the recorded changes, not Comfy Registry publication timestamps.
 
+## [0.5.1] - 2026-10-04
+
+- Use lowercase underscore input labels, mark model controls `[API]`, and supply a default user prompt for new nodes.
+- Give automatic budgets a display scale so nonzero usage remains visible; use lowercase budget labels.
+
+- Add connectable Input, Thinking and Output token budgets in Advanced; zero preserves existing/default limits.
+- Map output and supported thinking targets to provider controls. Shared generation limits combine thinking and answer allowances; unsupported numeric thinking targets remain planning allowances.
+- Check estimated text input before generation without truncating prompts or counting base64 media as text.
+- Show three green usage bars within Advanced only after a successful run, using API counts where available and labelled estimates/unknowns otherwise. No numeric labels or extra API calls.
+- Keep 0.5.0 node IDs, credentials, cache and native socket/collapse handling compatible.
+- Add display-only provider subtitles to the dropdown; plain provider values, socket inputs and the header remain unchanged.
+
 ## [0.5.0] - 2026-10-04
 
 - Add OpenAI, Google Gemini, Anthropic, DeepSeek, Groq, Mistral AI, xAI, Together AI and Fireworks AI, retaining OpenRouter, Featherless and LithosAI.

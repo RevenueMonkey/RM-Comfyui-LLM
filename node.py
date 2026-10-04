@@ -17,6 +17,7 @@ from .streaming import request_stream
 from . import providers as adapters
 from .provider_transport import complete as provider_complete
 from .template_options import FIELDS as TEMPLATE_FIELDS, PREFIX as TEMPLATE_PREFIX
+from .budgets import BUDGET_NAMES, apply_budgets, check_input, usage_report
 
 MEDIA_LIMIT = 48 * 1024 * 1024
 RESERVED_INPUTS = {"provider", "model", "models", "messages", "stream", "stream_options", "route", "model_name", "endpoint", "api_key_env", "credential_source", "system_prompt", "user_prompt", "parameters_json", "timeout_seconds", "image", "video", "key_ticket", "console_output"}
@@ -261,7 +262,7 @@ class ChatCompletionNode:
                 "api_key_env": ("STRING", {"default": "OPENROUTER_API_KEY", "tooltip": "Environment variable NAME only. The server reads its value; it is never sent to the browser."}),
                 "credential_source": ("STRING", {"default": "Environment variable"}),
                 "system_prompt": ("STRING", {"default": "You are a helpful assistant.", "multiline": True}),
-                "user_prompt": ("STRING", {"default": "", "multiline": True}),
+                "user_prompt": ("STRING", {"default": "Please respond to the following request.", "multiline": True}),
                 "parameters_json": ("STRING", {"default": "{}", "multiline": True}),
                 "timeout_seconds": ("INT", {"default": 300, "min": 10, "max": 3600}),
             },
@@ -285,7 +286,7 @@ class ChatCompletionNode:
     def IS_CHANGED(cls, **kwargs):
         return float("nan")
 
-    async def generate(self, provider, model_name, endpoint, api_key_env, credential_source, system_prompt, user_prompt, parameters_json, timeout_seconds, image=None, video=None, key_ticket="", console_output=False, **connected_parameters):
+    async def generate(self, provider, model_name, endpoint, api_key_env, credential_source, system_prompt, user_prompt, parameters_json, timeout_seconds, image=None, video=None, key_ticket="", console_output=False, input_budget=0, thinking_budget=0, output_budget=0, **connected_parameters):
         if type(console_output) is not bool:
             raise RMError("console_output must be a boolean (On or Off).")
         started = asyncio.get_running_loop().time()
@@ -303,8 +304,15 @@ class ChatCompletionNode:
             logging.info("[RM-LLM] Checking %s model capabilities.", provider)
         caps = await interruptible(model_capabilities(provider, model_name, key=key))
         parameters = merge_connected_parameters(parameters, connected_parameters, caps)
+        parameters, budget_plan = apply_budgets(provider, model_name, caps, parameters, input_budget, thinking_budget, output_budget, endpoint=endpoint)
         body = build_body(provider, model_name, endpoint, caps, system_prompt, user_prompt, parameters, image, video)
+        check_input(body, budget_plan)
         body["stream"] = console_output
+        stream_fields = next((ep["parameters"] for ep in caps["endpoints"] if ep["id"] == endpoint), caps["parameters"])
+        if console_output and "stream_options" in stream_fields:
+            options = body.setdefault("stream_options", {})
+            if isinstance(options, dict):
+                options.setdefault("include_usage", True)
         if console_output:
             logging.info("[RM-LLM] Streaming from %s; waiting for the first generated text.", provider)
         result = await interruptible(provider_complete(provider, body, caps, key, timeout_seconds) if provider in adapters.PROVIDERS else request_completion(provider, base + "/chat/completions", key, body, timeout_seconds))
@@ -323,7 +331,8 @@ class ChatCompletionNode:
         response_json = json.dumps(result, ensure_ascii=False).replace(json.dumps(key, ensure_ascii=False)[1:-1], "[REDACTED]")
         if console_output:
             logging.info("[RM-LLM] Completed in %.2f seconds.", asyncio.get_running_loop().time() - started)
-        return {"ui": {"text": [content]}, "result": (content, reasoning, response_json)}
+        usage = usage_report(provider, result, budget_plan, content, reasoning)
+        return {"ui": {"text": [content], "rm_llm_usage": [usage]}, "result": (content, reasoning, response_json)}
 
 
 def creativity_to_sampling(creativity):
@@ -346,10 +355,13 @@ class ConversationNode(ChatCompletionNode):
         })
         inputs["optional"]["reasoning.enabled"] = ("BOOLEAN", {"forceInput": True, "tooltip": "Enable reasoning when supported by the selected model."})
         inputs["optional"]["agent_request"] = ("RM_LLM_AGENT_REQUEST", {"tooltip": "A connected tool conversation uses the Responses transport. System/user prompts and model settings remain on this RM-LLM node."})
+        for name in BUDGET_NAMES:
+            inputs["optional"][name] = ("INT", {"default": 0, "min": 0, "max": 2**31 - 1,
+                "tooltip": "Tokens; 0 keeps existing/default behaviour. Positive budgets take precedence over corresponding token settings. Thinking and output may share one API limit."})
         inputs["hidden"] = {"dynprompt": "DYNPROMPT"}
         return inputs
 
-    async def generate(self, parameters_json, creativity=None, agent_request=None, dynprompt=None, **kwargs):
+    async def generate(self, parameters_json, creativity=None, agent_request=None, dynprompt=None, input_budget=0, thinking_budget=0, output_budget=0, **kwargs):
         model_info = {"provider": kwargs.get("provider"), "model": kwargs.get("model_name")}
         context = get_executing_context()
         if context is not None and dynprompt is not None:
@@ -388,6 +400,9 @@ class ConversationNode(ChatCompletionNode):
                 raise RMError("Connected agent settings and conversation must be valid JSON.") from None
             if not isinstance(parameters, dict) or not isinstance(conversation, list):
                 raise RMError("Agent settings must be an object and the conversation must be an array.")
+            parameters.setdefault("reasoning", {"effort": parameters.get("reasoning_effort", "medium")})
+            caps = await interruptible(model_capabilities(kwargs["provider"], kwargs["model_name"]))
+            parameters, budget_plan = apply_budgets(kwargs["provider"], kwargs["model_name"], caps, parameters, input_budget, thinking_budget, output_budget, responses=True, endpoint=kwargs["endpoint"])
             if "max_tokens" in parameters and "max_output_tokens" in parameters:
                 raise RMError("Set only one output token limit.")
             effort = parameters.pop("reasoning_effort", "medium")
@@ -404,18 +419,29 @@ class ConversationNode(ChatCompletionNode):
                 raise RMError("For tool conversations, put model settings in parameters_json; video input is not supported.")
             profile = dict(provider=kwargs["provider"], model=kwargs["model_name"], endpoint=kwargs["endpoint"], api_key_env=kwargs["api_key_env"], reasoning_effort=reasoning.get("effort", "medium"), max_output_tokens=maximum, input_ceiling=agent_request["input_ceiling"], timeout_seconds=kwargs["timeout_seconds"], extra_parameters=parameters, reasoning=reasoning)
             request = dict(instructions=kwargs["system_prompt"], input=conversation, tools=agent_request["tools"])
+            check_input(request, budget_plan)
+            if kwargs.get("image") is not None:
+                budget_plan["input_has_media"] = True
+            if input_budget:
+                profile["input_ceiling"] = min(profile["input_ceiling"], input_budget)
+            if not budget_plan["generation_limit"]:
+                budget_plan["generation_limit"] = maximum
+                budget_plan["output"] = max(0, maximum - budget_plan["thinking"])
             result, = await AgentRequest().request(profile, request, image=kwargs.get("image"))
             text = result.get("text", "")
             report = text or json.dumps(result.get("calls") or {"status": result["status"], "message": result.get("message", "")}, ensure_ascii=False)
-            return {"ui": {"text": [report], "rm_llm_model": [model_info]}, "result": (text, "", json.dumps(result, ensure_ascii=False))}
-        result = await super().generate(parameters_json=parameters_json, **kwargs)
+            ui = {"text": [report], "rm_llm_model": [model_info]}
+            if result.get("status") in {"complete", "tools"}:
+                ui["rm_llm_usage"] = [usage_report(kwargs["provider"], result, budget_plan, text)]
+            return {"ui": ui, "result": (text, "", json.dumps(result, ensure_ascii=False))}
+        result = await super().generate(parameters_json=parameters_json, input_budget=input_budget, thinking_budget=thinking_budget, output_budget=output_budget, **kwargs)
         if model_info["provider"] and model_info["model"]:
             result["ui"]["rm_llm_model"] = [model_info]
         return result
 
 
 class RMLLM050(ConversationNode):
-    """RM-LLM 0.5.0; self-contained provider and frontend integration."""
+    """RM-LLM 0.5.1; compatible patch with token budgets and usage bars."""
 
     DESCRIPTION = (
         "Twelve LLM API providers with model discovery, "
