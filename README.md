@@ -36,6 +36,7 @@ These are supported integrations, not a measured ComfyUI popularity ranking. Mod
 - **Live console output:** stream generated text and returned reasoning as they arrive.
 - **Keys kept out of workflows:** masked key entry, environment-variable credentials and temporary session keys.
 - **Separate outputs:** generated text, returned reasoning and the full provider response, including usage when supplied.
+- **Token budgets:** Input, Thinking and Output allowances in Advanced, with green usage bars shown after a run and simple tooltips explaining estimates.
 
 ## Install
 
@@ -90,6 +91,22 @@ Available controls and media support depend on the selected provider's API metad
 
 ## Provider differences
 
+### Token budgets
+
+In Advanced, set **input_budget**, **thinking_budget** and **output_budget** in tokens. Leave a field blank or use **0** to keep existing/provider defaults. All three accept connections from other nodes. Green usage bars appear beneath these controls after a successful run, without numeric labels. Automatic mode uses known model limits or an estimated display scale, without adding request limits. Empty bars indicate zero or unknown usage; hover for the explanation.
+
+- **Input:** stops before generation if the rough text estimate exceeds your budget. It never truncates prompts. The estimate includes conversation and tool text, but excludes media tokens; actual provider usage is preferred after the run. This is not a tokenizer-accurate context or cost guarantee.
+- **Thinking:** sends a numeric target where supported; otherwise it is a planning allowance. Explicit Thinking/Reasoning Off and known default-off models stay off. Enable thinking separately when needed. Adaptive/effort-only models cannot enforce a numeric split.
+- **Output:** a positive value replaces other output-token settings. When thinking is available, the configured thinking allowance is added to the shared generation limit. Unused thinking space may become output, or thinking may consume more than planned; neither part is guaranteed its share. With a zero Output budget, the existing generation limit stays in place.
+
+Usage counts come from the API when supplied, including cached input and separate thinking counts where available. Otherwise returned text is estimated. Hidden reasoning with no usage breakdown is marked unknown, not zero. Bars saturate at full; tooltips identify usage above an allowance. They describe the last run, not a live spending meter. No extra token-counting API calls or tokenizer downloads are made.
+
+For example, budgets of **2048 input**, **1024 thinking** and **512 output** make a short test easy to read. Usage of 833, 666 and 118 tokens fills approximately 41%, 65% and 23% respectively. Automatic mode may show only a small green marker when model limits are much larger than usage.
+
+Controls marked `[API]` are provider/model controls, drawn from metadata or documented capabilities. Budgets and creativity are local convenience controls.
+
+### API behaviour
+
 - Claude uses its native Messages API; Gemini uses native GenerateContent. Their response JSON includes the preserved native response under `provider_response`, alongside the usual text/reasoning outputs.
 - Model controls combine live metadata with reviewed API documentation. Where metadata does not advertise media, only documented model families are enabled; unknown model names are not assumed to support vision. New model families may need a capability-record update.
 - Catalogues list supported chat/text models. Fireworks lists public serverless models; custom account model IDs can be entered manually. Together model metadata comes from its catalogue because it does not expose the same per-model lookup as other providers.
@@ -104,7 +121,7 @@ Available controls and media support depend on the selected provider's API metad
 
 See [GitHub Releases](https://github.com/RevenueMonkey/RM-Comfyui-LLM/releases) for downloads and the [dated changelog](CHANGELOG.md) for version details. Changelog dates record changes, not Registry publication dates.
 
-The current node uses the ID `RM_LLM_050`. Older workflows using `RM_LLM_040`, `RM_LLM_V3` or `RM_LLM_V2` are not automatically converted. Keep the older package if those workflows still need it; the new node has separate IDs and routes so both can coexist. For a separate installation, use a different folder name when cloning.
+The current node uses the ID `RM_LLM_050`; the 0.5.1 patch keeps this ID and the existing routes/cache so 0.5.0 workflows remain compatible. Older workflows using `RM_LLM_040`, `RM_LLM_V3` or `RM_LLM_V2` are not automatically converted. Keep the older package if those workflows still need it; the new node has separate IDs and routes so both can coexist. For a separate installation, use a different folder name when cloning.
 
 The current node and socket dragging have been user-tested on Windows. Provider adapters have offline contract tests; live testing of every provider/account combination is not complete. The node uses standard ComfyUI dependencies and native extension hooks. Linux/macOS runtime verification is still incomplete; the included PowerShell launcher is optional and Windows-specific.
 

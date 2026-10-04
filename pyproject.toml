@@ -1,7 +1,7 @@
 [project]
 name = "rm-comfyui-llm"
-description = "Connect twelve LLM API providers to ComfyUI with searchable model catalogues, model-specific controls, image/video inputs where supported, Thinking/Reasoning, a linked Creativity slider, live console streaming, and API keys kept out of workflows."
-version = "0.5.0"
+description = "Connect twelve LLM API providers to ComfyUI with searchable model catalogues, model-specific controls, image/video inputs where supported, Thinking/Reasoning, token budgets and usage bars, a linked Creativity slider, live console streaming, and API keys kept out of workflows."
+version = "0.5.1"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = []
@@ -13,4 +13,4 @@ Documentation = "https://github.com/RevenueMonkey/RM-Comfyui-LLM#readme"
 
 [tool.comfy]
 PublisherId = "revenuemonkey"
-DisplayName = "RM-ComfyUI-LLM 0.5.0"
+DisplayName = "RM-ComfyUI-LLM 0.5.1"

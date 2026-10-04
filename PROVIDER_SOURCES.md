@@ -29,5 +29,17 @@ credentials, call model endpoints, or verify browser rendering. It covers node
 registration, all-provider execution dispatch, credentials, catalogue pagination,
 media/parameter translation, native streaming and incomplete-response handling.
 
-Live account tests, frontend checks and Linux/macOS execution remain to be done
-before publishing this preview.
+The user tested local Windows functionality and socket dragging in 0.5.0.
+Full live account coverage and Linux/macOS execution remain unverified.
+
+## Token budgets (0.5.1, reviewed 2026-10-04)
+
+- [OpenRouter reasoning](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens): combined completion limit, usage breakdown and live `supports_max_tokens` capability. Only advertised numeric targets are sent; effort-only models retain a planning allowance.
+- [Claude extended thinking](https://platform.claude.com/docs/en/build-with-claude/extended-thinking): manual thinking target, minimum 1024 and shared generation limit; thinking may be summarized. Adaptive thinking remains an allowance, not a new numeric API parameter.
+- [Gemini thinking](https://ai.google.dev/gemini-api/docs/thinking): Gemini 2.5 numeric thinking budget, newer thinking levels, shared generation limit and separate thoughts/candidates usage counts.
+- Fireworks budget support follows the existing reviewed provider capability record. Other providers retain their existing token-limit fields and reasoning controls; no undocumented thinking field is introduced.
+
+The input/text estimator is an RM-LLM heuristic (UTF-8 bytes divided by four),
+not a model tokenizer. Media are excluded from the preflight count. Usage
+normalization distinguishes reported zeros from missing/hidden reasoning.
+Run `python -B -m unittest discover -s tests` for provider and budget contracts.

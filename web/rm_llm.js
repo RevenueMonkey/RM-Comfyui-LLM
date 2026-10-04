@@ -7,6 +7,20 @@ const nodeDefinitions = new Map();
 const observedGraphs = new WeakSet();
 const NODE_ID = "RM_LLM_050";
 const defaults = { OpenRouter: "OPENROUTER_API_KEY", Featherless: "FEATHERLESS_API_KEY", LithosAI: "LITHOSAI_API_KEY", OpenAI: "OPENAI_API_KEY", "Google Gemini": "GEMINI_API_KEY", Anthropic: "ANTHROPIC_API_KEY", DeepSeek: "DEEPSEEK_API_KEY", Groq: "GROQ_API_KEY", "Mistral AI": "MISTRAL_API_KEY", xAI: "XAI_API_KEY", "Together AI": "TOGETHER_API_KEY", "Fireworks AI": "FIREWORKS_API_KEY" };
+const providerSubtitles = {
+    OpenAI: "Reliable Frontier",
+    "Google Gemini": "Media Master",
+    Anthropic: "Elegant Thinker",
+    OpenRouter: "Infinite Choice",
+    DeepSeek: "Cheap Genius",
+    Groq: "Lightning Fast",
+    "Mistral AI": "Compact Power",
+    xAI: "Bold Intelligence",
+    "Together AI": "Open Abundance",
+    "Fireworks AI": "Flexible Scale",
+    Featherless: "Wild Catalog",
+    LithosAI: "Rapid Inference",
+};
 const css = document.createElement("style");
 css.textContent = `
 .rm050-llm { color:var(--input-text,#ddd); background:var(--comfy-menu-bg,#222); padding:10px; box-sizing:border-box; font:13px sans-serif; overflow:auto; width:100%; height:100%; min-width:0; min-height:0; }
@@ -29,6 +43,8 @@ css.textContent = `
 /* The native wrapper also covers the socket gutter and sets pointer-events inline. */
 .dom-widget:has(> .rm050-widget-row) { pointer-events:none !important; }
 .rm050-widget-row > * { pointer-events:auto; }
+.rm050-budget-bar { height:10px; flex:none; border:1px solid var(--border-color,#666); border-radius:6px; background:transparent; overflow:hidden; margin-top:5px; }
+.rm050-budget-fill { height:100%; background:#35b56a; }
 .rm050-widget-row[hidden] { display:none !important; }
 .rm050-widget-row.rm050-model-heading { justify-content:center; text-align:center; padding:4px 16px; }
 .rm050-model-name { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.12; font-weight:500; }
@@ -84,10 +100,13 @@ function value(node, name) {
 
 function setValue(node, name, val) {
     const w = widget(node, name);
+    const changed = w && w.value !== val;
     if (w) w.value = val;
     const field = states.get(node)?.parameters;
     if (name === "parameters_json" && field && document.activeElement !== field) field.value = val;
     if (name === "model_name") states.get(node)?.updateModelHeading?.();
+    const state = states.get(node);
+    if (changed && ["provider", "model_name"].includes(name) && state?.budgetBars) displayBudgetUsage(state, null);
     node.graph?.setDirtyCanvas(true, true);
 }
 
@@ -118,7 +137,7 @@ function selection(state) {
     };
 }
 
-const coreSockets = { provider: "STRING", model_name: "STRING", api_key_env: "STRING", credential_source: "STRING", system_prompt: "STRING", user_prompt: "STRING", parameters_json: "STRING", timeout_seconds: "INT", console_output: "BOOLEAN" };
+const coreSockets = { provider: "STRING", model_name: "STRING", api_key_env: "STRING", credential_source: "STRING", system_prompt: "STRING", user_prompt: "STRING", parameters_json: "STRING", timeout_seconds: "INT", console_output: "BOOLEAN", input_budget: "INT", thinking_budget: "INT", output_budget: "INT" };
 
 function connected(node, name) {
     return node.inputs?.some(input => input.name === name && input.link != null) ?? false;
@@ -230,7 +249,7 @@ function layoutSections(state, fit = false) {
     const topRows = ["model_heading"];
     const modelRows = ["provider", "model_name", "credential_source", "api_key_env", "section_0", "timeout_seconds", "section_4"];
     const simpleRows = ["image", "video", "system_prompt", "user_prompt", "creativity", templatePrefix + "enable_thinking", "reasoning.enabled"];
-    const advancedOrder = ["temperature", "top_p", "agent_request", "stream_options", ...state.parameterRows, "parameters_json", "section_5"];
+    const advancedOrder = ["input_budget", "thinking_budget", "output_budget", "temperature", "top_p", "agent_request", "stream_options", ...state.parameterRows, "parameters_json", "section_5"];
     const advanced = [...new Set([...advancedOrder, ...state.rows.keys()])].filter(name => !topRows.includes(name) && !simpleRows.includes(name) && !modelRows.includes(name) && !name.startsWith("heading_") && name !== "console_output");
     const ordered = [...topRows, "heading_model", ...modelRows, "heading_standard", ...simpleRows, "heading_advanced", ...advanced, "console_output"];
     const rows = ordered.flatMap(name => {
@@ -327,7 +346,7 @@ function bindRows(state) {
 function syncMediaAvailability(state) {
     const modalities = state.caps?.input_modalities || [];
     state.mediaSlotDefaults ||= new Map();
-    for (const [name, title] of [["image", "Image"], ["video", "Video"]]) {
+    for (const [name, title] of [["image", "image"], ["video", "video"]]) {
         const input = state.node.inputs?.find(candidate => candidate.name === name);
         const row = state.rows.get(name);
         const label = row?.element.querySelector("label");
@@ -356,7 +375,7 @@ function syncMediaAvailability(state) {
             if (defaults.color_off === undefined) delete input.color_off;
             else input.color_off = defaults.color_off;
             if (label) {
-                label.textContent = title;
+                label.textContent = `${title} [API]`;
                 label.title = "";
                 label.classList.remove("rm050-media-unavailable");
             }
@@ -391,7 +410,7 @@ function mountParameterRows(state) {
     for (const input of state.node.inputs || []) {
         if (input.link == null || state.rows.has(input.name)) continue;
         const thinking = ["reasoning.enabled", templatePrefix + "enable_thinking"].includes(input.name);
-        const label = element("label", thinking ? "Thinking/Reasoning" : input.name);
+        const label = element("label", thinking ? "thinking_reasoning" : input.name);
         label.title = "Value supplied by the connected node. Model support is checked during execution.";
         addRow(state, input.name, [label], 24);
         state.parameterRows.add(input.name);
@@ -469,7 +488,7 @@ function syncCreativity(state, edited) {
 function addCreativity(state) {
     state.creativity = document.createElement("input");
     Object.assign(state.creativity, { type: "range", min: "0", max: "100", step: "0.1", value: "50" });
-    state.creativity.setAttribute("aria-label", "Creativity");
+    state.creativity.setAttribute("aria-label", "creativity");
     state.creativity.title = "Sets Temperature and top_p. Editing either Advanced value updates this slider without changing the other. Individually connected inputs take precedence.";
     state.creativity.oninput = () => {
         if (state.creativity.disabled) return;
@@ -485,7 +504,54 @@ function addCreativity(state) {
     };
     const line = element("div", undefined, "rm050-row");
     line.append(element("span", "Min"), state.creativity, element("span", "Max"));
-    addRow(state, "creativity", [element("label", "Creativity"), line], 62);
+    addRow(state, "creativity", [element("label", "creativity"), line], 62);
+}
+
+function addBudgets(state) {
+    state.budgetBars = new Map();
+    const descriptions = {
+        input: "Estimated input check; stops before generation if exceeded. Media tokens cannot be estimated here. 0 = no new input limit.",
+        thinking: "Numeric thinking target where supported; otherwise a planning allowance. Thinking Off takes precedence. 0 = existing/provider default.",
+        output: "Answer allowance. When thinking is available, its allowance is added to the shared generation limit; the split is not guaranteed. Overrides other output token limits. 0 = existing/provider default.",
+    };
+    for (const [kind, description] of Object.entries(descriptions)) {
+        const name = `${kind}_budget`;
+        const label = element("label", `${kind}_budget`);
+        const input = element("input");
+        Object.assign(input, { type: "number", min: "0", max: String(2 ** 31 - 1), step: "1", placeholder: "Automatic" });
+        input.className = "rm050-wide";
+        input.setAttribute("aria-label", label.textContent);
+        input.title = label.title = `${description} Values are tokens.`;
+        input.value = value(state.node, name) || "";
+        input.oninput = () => setValue(state.node, name, input.validity.badInput ? NaN : Number(input.value));
+        state.bindings.set(name, input);
+        const bar = element("div", undefined, "rm050-budget-bar");
+        bar.hidden = true;
+        bar.setAttribute("role", "progressbar");
+        bar.setAttribute("aria-label", `${kind} usage from last run`);
+        bar.setAttribute("aria-valuemin", "0");
+        bar.setAttribute("aria-valuemax", "100");
+        const fill = element("div", undefined, "rm050-budget-fill");
+        fill.style.width = "0%";
+        bar.append(fill);
+        state.budgetBars.set(kind, { bar, fill });
+        addRow(state, name, [label, input, bar], () => bar.hidden ? 58 : 76);
+    }
+}
+
+function displayBudgetUsage(state, report) {
+    for (const [kind, { bar, fill }] of state.budgetBars || []) {
+        const usage = report?.[kind];
+        bar.hidden = !usage;
+        const fraction = Number.isFinite(usage?.fraction) ? Math.max(0, Math.min(1, usage.fraction)) : 0;
+        fill.style.width = `${fraction * 100}%`;
+        fill.style.minWidth = usage?.used > 0 ? "2px" : "0";
+        bar.title = usage ? `Last run: ${usage.tooltip}` : "";
+        bar.setAttribute("aria-valuetext", bar.title);
+        if (usage?.used != null && (usage?.scale || usage?.budget)) bar.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
+        else bar.removeAttribute("aria-valuenow");
+    }
+    layoutSections(state, true);
 }
 
 function renderControls(state) {
@@ -521,7 +587,8 @@ function renderControls(state) {
         const reasoningToggle = name === "reasoning.enabled";
         const thinkingToggle = reasoningToggle || name === templatePrefix + "enable_thinking";
         const row = element("div", undefined, "rm050-param");
-        const label = element("label", thinkingToggle ? "Thinking/Reasoning" : nested ? `Chat template · ${optionName}` : name);
+        const labelName = thinkingToggle ? "thinking_reasoning" : nested ? `chat_template_${optionName}` : name;
+        const label = element("label", `${labelName} [API]`);
         label.title = [schema.description || "Enter a value or connect a node to this input.", schema.evidence, schema.source, schema.default_note ? `Default: ${schema.default_note}` : ""].filter(Boolean).join("\n");
         const kinds = (Array.isArray(schema.type) ? schema.type : [schema.type]).filter(t => t !== "null");
         const kind = kinds.length === 1 ? kinds[0] : undefined;
@@ -929,29 +996,29 @@ function setup(node, nodeData) {
     }
     state.provider = document.createElement("select");
     for (const p of Object.keys(defaults)) {
-        state.provider.add(new Option(p, p));
+        state.provider.add(new Option(`${p} — ${providerSubtitles[p]}`, p));
     }
-    label("Provider", state.provider);
+    label("provider", state.provider);
     state.bindings.set("provider", state.provider);
     state.model = document.createElement("input"); state.model.className = "rm050-wide";
     state.model.type = "text"; state.model.value = value(node, "model_name") || "";
     state.model.placeholder = "Type or select a model"; state.model.autocomplete = "off"; state.model.spellcheck = false;
-    state.model.setAttribute("aria-label", "Model Name");
+    state.model.setAttribute("aria-label", "model_name");
     state.bindings.set("model_name", state.model);
-    label("Model Name", state.model);
+    label("model_name", state.model);
     state.mode = document.createElement("select");
-    state.mode.setAttribute("aria-label", "API Key System");
+    state.mode.setAttribute("aria-label", "api_key_system");
     for (const m of ["Environment variable", "Masked session key"]) state.mode.add(new Option(m, m));
-    label("API Key System", state.mode);
+    label("api_key_system", state.mode);
     state.bindings.set("credential_source", state.mode);
-    state.env = label("API-key environment variable name", bound("api_key_env"));
+    state.env = label("api_key_environment_variable_name", bound("api_key_env"));
     const keyRow = element("div", undefined, "rm050-row");
     const password = document.createElement("input");
     password.type = "password"; password.autocomplete = "off"; password.placeholder = "Paste API key";
     password.setAttribute("aria-label", "API key"); password.spellcheck = false;
     const setKey = element("button", "Set");
     keyRow.append(password, setKey);
-    label("API Key (Key hidden. Never shared in workflows.)", keyRow);
+    label("api_key (Key hidden. Never shared in workflows.)", keyRow);
     const setKeyStatus = (status) => {
         setKey.classList.remove("rm050-key-status-ready", "rm050-key-status-missing", "rm050-key-status-unknown");
         setKey.classList.add(`rm050-key-status-${status}`);
@@ -1016,13 +1083,13 @@ function setup(node, nodeData) {
         } catch (error) { note(state, error.message, true); }
         finally { setKey.disabled = false; }
     };
-    state.system = label("System Prompt", bound("system_prompt", "textarea"));
-    state.user = label("User Prompt", bound("user_prompt", "textarea"));
-    state.parameters = label("Additional settings (JSON)", bound("parameters_json", "textarea"));
+    state.system = label("system_prompt", bound("system_prompt", "textarea"));
+    state.user = label("user_prompt", bound("user_prompt", "textarea"));
+    state.parameters = label("additional_settings_json", bound("parameters_json", "textarea"));
     state.parameters.onchange = () => { setValue(node, "parameters_json", state.parameters.value); renderControls(state); };
     state.capInfo = element("div", "Context: —  |  Output limit: —", "rm050-note"); panel.append(state.capInfo);
     state.controls = element("div"); panel.append(state.controls);
-    state.timeout = label("Request timeout (seconds)", bound("timeout_seconds"));
+    state.timeout = label("request_timeout_seconds", bound("timeout_seconds"));
     state.timeout.type = "number"; state.timeout.min = "10"; state.timeout.max = "3600";
     state.status = element("div", "Ready. Model weights remain hosted by the provider.", "rm050-note"); panel.append(state.status);
     state.output = document.createElement("textarea"); state.output.readOnly = true; state.output.placeholder = "Response preview"; panel.append(state.output);
@@ -1039,7 +1106,7 @@ function setup(node, nodeData) {
     state.console = document.createElement("input");
     state.console.type = "checkbox";
     state.console.setAttribute("role", "switch");
-    state.console.setAttribute("aria-label", "Console output");
+    state.console.setAttribute("aria-label", "console_output");
     const consoleState = element("span", "Off");
     const consoleLine = element("div", undefined, "rm050-row");
     consoleLine.append(state.console, consoleState);
@@ -1048,9 +1115,9 @@ function setup(node, nodeData) {
         consoleState.textContent = state.console.checked ? "On" : "Off";
     };
     state.bindings.set("console_output", state.console);
-    addRow(state, "console_output", [element("label", "Live console output"), consoleLine], 58);
+    addRow(state, "console_output", [element("label", "live_console_output"), consoleLine], 58);
     for (const name of ["image", "video"]) {
-        addRow(state, name, [element("label", name === "image" ? "Image" : "Video")], 24);
+        addRow(state, name, [element("label", name)], 24);
     }
     if (nodeData.input.optional.agent_request) {
         const label = element("label", "agent_request");
@@ -1068,6 +1135,7 @@ function setup(node, nodeData) {
         addRow(state, `heading_${name}`, [button], 42);
     }
     addCreativity(state);
+    addBudgets(state);
     addModelHeading(state);
     installModelPicker(state);
     installExecutionWidgets(state);
@@ -1083,6 +1151,7 @@ function setup(node, nodeData) {
         state.system.value = value(node, "system_prompt"); state.user.value = value(node, "user_prompt");
         state.timeout.value = value(node, "timeout_seconds");
         state.parameters.value = value(node, "parameters_json");
+        for (const kind of ["input", "thinking", "output"]) state.bindings.get(`${kind}_budget`).value = value(node, `${kind}_budget`) || "";
         state.console.checked = value(node, "console_output") === true;
         state.console.onchange();
         setValue(node, "key_ticket", "");
@@ -1116,6 +1185,12 @@ function installExecutionWidgets(state) {
     const ticket = widget(node, "key_ticket");
     // These are this node's widget callbacks, not replacements for shared methods.
     settings.serializeValue = () => {
+        for (const kind of ["input", "thinking", "output"]) {
+            const name = `${kind}_budget`, amount = value(node, name) ?? 0;
+            if (!connected(node, name) && (!Number.isInteger(amount) || amount < 0 || amount > 2 ** 31 - 1)) {
+                throw new Error(`RM-LLM: ${kind} budget needs a nonnegative whole number.`);
+            }
+        }
         if (!connected(node, "parameters_json")) {
             for (const validate of state.validators.values()) validate();
             if (state.invalid.size) throw new Error(`RM-LLM: ${[...state.invalid.values()].join(" ")}`);
@@ -1187,6 +1262,9 @@ function observeGraph(graph) {
 
 function initializeNode(node) {
     if (node.comfyClass !== NODE_ID && node.type !== NODE_ID) return;
+    for (const [index, name] of ["response", "reasoning", "response_json"].entries()) {
+        if (node.outputs?.[index]) node.outputs[index].label = `${name} [API]`;
+    }
     const definition = nodeDefinitions.get(NODE_ID) || node.constructor.nodeData;
     if (!definition?.input?.optional) return;
     setup(node, definition);
@@ -1199,6 +1277,7 @@ function receiveOutput(id, output) {
     if (!state) return;
     receiveModel(state, output.rm_llm_model?.[0]);
     state.output.value = (output.text || []).join("\n");
+    displayBudgetUsage(state, output.rm_llm_usage?.[0]);
 }
 
 function restoreStableInputs(graphData) {
@@ -1279,7 +1358,10 @@ app.registerExtension({
         api.addEventListener("rm050-llm-model", ({ detail }) => {
             const node = executionNode(app.rootGraph, detail.node);
             const state = node && states.get(node);
-            if (state) receiveModel(state, detail.model_info);
+            if (state) {
+                displayBudgetUsage(state, null);
+                receiveModel(state, detail.model_info);
+            }
         });
         api.addEventListener("executed", ({ detail }) => {
             if (detail?.node != null && detail.output) receiveOutput(detail.node, detail.output);
