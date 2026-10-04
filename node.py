@@ -14,6 +14,8 @@ from comfy_api.latest import VideoContainer, VideoCodec
 
 from .service import RMError, ProviderHTTPError, consume_key, model_capabilities, provider_info, request_json, read_records, DETAILS, LOCK
 from .streaming import request_stream
+from . import providers as adapters
+from .provider_transport import complete as provider_complete
 from .template_options import FIELDS as TEMPLATE_FIELDS, PREFIX as TEMPLATE_PREFIX
 
 MEDIA_LIMIT = 48 * 1024 * 1024
@@ -74,7 +76,7 @@ def merge_connected_parameters(parameters, connected, caps):
             options[name] = value
         parameters["chat_template_kwargs"] = options
     if "reasoning.enabled" in connected:
-        if caps.get("provider") != "OpenRouter" or "reasoning" not in caps["parameters"]:
+        if "reasoning" not in caps["parameters"]:
             raise RMError("Thinking/Reasoning is unsupported by the selected model. Disconnect its input or select a compatible model.")
         options = parameters.get("reasoning", {})
         if not isinstance(options, dict):
@@ -107,6 +109,8 @@ def validate_value(name, value, schema):
         raise RMError(f"{name} is not an advertised option.")
     if type(value) in (int, float) and "minimum" in schema and value < schema["minimum"]:
         raise RMError(f"{name} must be at least {schema['minimum']}.")
+    if type(value) in (int, float) and "maximum" in schema and value > schema["maximum"]:
+        raise RMError(f"{name} must be at most {schema['maximum']}.")
 
 
 class LimitedBuffer(io.BytesIO):
@@ -181,7 +185,7 @@ def build_body(provider, model, endpoint, caps, system_prompt, user_prompt, para
     parameters = validate_parameters(parameters, caps, endpoint)
     modalities = caps["input_modalities"]
     image_supported = image is not None and "image" in modalities
-    video_supported = video is not None and provider == "OpenRouter" and "video" in modalities
+    video_supported = video is not None and provider in {"OpenRouter", "Google Gemini"} and "video" in modalities
     # Keep a connected media socket stable when a model is changed.  The
     # frontend marks that socket N/A, and the request remains a valid text
     # request with the unsupported media omitted.
@@ -303,7 +307,7 @@ class ChatCompletionNode:
         body["stream"] = console_output
         if console_output:
             logging.info("[RM-LLM] Streaming from %s; waiting for the first generated text.", provider)
-        result = await interruptible(request_completion(provider, base + "/chat/completions", key, body, timeout_seconds))
+        result = await interruptible(provider_complete(provider, body, caps, key, timeout_seconds) if provider in adapters.PROVIDERS else request_completion(provider, base + "/chat/completions", key, body, timeout_seconds))
         if not isinstance(result.get("choices"), list) or not result["choices"]:
             raise RMError("Provider returned no completion choices.")
         message = result["choices"][0].get("message") or {}
@@ -340,7 +344,7 @@ class ConversationNode(ChatCompletionNode):
             "forceInput": True, "min": 0.0, "max": 100.0,
             "tooltip": "0–100: sets Temperature and top_p. Individually connected sampling inputs take precedence.",
         })
-        inputs["optional"]["reasoning.enabled"] = ("BOOLEAN", {"forceInput": True, "tooltip": "Enable OpenRouter reasoning when supported by the selected model."})
+        inputs["optional"]["reasoning.enabled"] = ("BOOLEAN", {"forceInput": True, "tooltip": "Enable reasoning when supported by the selected model."})
         inputs["optional"]["agent_request"] = ("RM_LLM_AGENT_REQUEST", {"tooltip": "A connected tool conversation uses the Responses transport. System/user prompts and model settings remain on this RM-LLM node."})
         inputs["hidden"] = {"dynprompt": "DYNPROMPT"}
         return inputs
@@ -350,15 +354,17 @@ class ConversationNode(ChatCompletionNode):
         context = get_executing_context()
         if context is not None and dynprompt is not None:
             inputs = dynprompt.get_node(context.node_id)["inputs"]
-            defaults = {provider_info(provider)[1] for provider in ("OpenRouter", "Featherless", "LithosAI")}
+            defaults = {provider_info(provider)[1] for provider in ("OpenRouter", "Featherless", "LithosAI", *adapters.PROVIDERS)}
             # A runtime provider connection owns its default key selection.
             # Explicitly connected/custom environment names keep their meaning.
             if isinstance(inputs.get("provider"), list) and not isinstance(inputs.get("api_key_env"), list) and kwargs.get("api_key_env") in defaults:
                 kwargs["api_key_env"] = provider_info(kwargs["provider"])[1]
         if context is not None:
             display_id = dynprompt.get_display_node_id(context.node_id) if dynprompt is not None else context.node_id
-            PromptServer.instance.send_sync("rm040-llm-model", {"node": display_id, "model_info": model_info}, PromptServer.instance.client_id)
+            PromptServer.instance.send_sync("rm050-llm-model", {"node": display_id, "model_info": model_info}, PromptServer.instance.client_id)
         if creativity is not None:
+            if kwargs.get("provider") == "Anthropic":
+                raise RMError("Anthropic does not support paired Creativity sampling. Use temperature or top_p in Advanced.")
             try:
                 parameters = json.loads(parameters_json)
             except json.JSONDecodeError:
@@ -408,10 +414,10 @@ class ConversationNode(ChatCompletionNode):
         return result
 
 
-class RMLLM040(ConversationNode):
-    """RM-LLM 0.4.0; self-contained provider and frontend integration."""
+class RMLLM050(ConversationNode):
+    """RM-LLM 0.5.0; self-contained provider and frontend integration."""
 
     DESCRIPTION = (
-        "OpenRouter, Featherless, and LithosAI LLM calls with live model discovery, "
+        "Twelve LLM API providers with model discovery, "
         "dynamic controls, optional media input, and server-side credentials."
     )

@@ -5,62 +5,64 @@ import { creativityToSampling, samplingToCreativity } from "./sampling.js";
 const states = new WeakMap();
 const nodeDefinitions = new Map();
 const observedGraphs = new WeakSet();
-const NODE_ID = "RM_LLM_040";
-const defaults = { OpenRouter: "OPENROUTER_API_KEY", Featherless: "FEATHERLESS_API_KEY", LithosAI: "LITHOSAI_API_KEY" };
+const NODE_ID = "RM_LLM_050";
+const defaults = { OpenRouter: "OPENROUTER_API_KEY", Featherless: "FEATHERLESS_API_KEY", LithosAI: "LITHOSAI_API_KEY", OpenAI: "OPENAI_API_KEY", "Google Gemini": "GEMINI_API_KEY", Anthropic: "ANTHROPIC_API_KEY", DeepSeek: "DEEPSEEK_API_KEY", Groq: "GROQ_API_KEY", "Mistral AI": "MISTRAL_API_KEY", xAI: "XAI_API_KEY", "Together AI": "TOGETHER_API_KEY", "Fireworks AI": "FIREWORKS_API_KEY" };
 const css = document.createElement("style");
 css.textContent = `
-.rm040-llm { color:var(--input-text,#ddd); background:var(--comfy-menu-bg,#222); padding:10px; box-sizing:border-box; font:13px sans-serif; overflow:auto; width:100%; height:100%; min-width:0; min-height:0; }
-.rm040-llm label { display:block; margin:6px 0 3px; }
-.rm040-llm input:not([type=checkbox]),.rm040-llm select,.rm040-llm textarea,.rm040-llm button { color:var(--input-text,#ddd); background:var(--comfy-input-bg,#333); border:1px solid var(--border-color,#666); border-radius:4px; padding:6px; box-sizing:border-box; max-width:100%; }
-.rm040-llm textarea { width:100%; resize:vertical; min-height:65px; }
-.rm040-llm select,.rm040-llm .rm040-wide { width:100%; }
-.rm040-llm button { cursor:pointer; text-align:left; white-space:normal; overflow-wrap:anywhere; }
-.rm040-llm .rm040-row { display:flex; gap:6px; align-items:center; margin:5px 0; }
-.rm040-llm .rm040-row > input:not([type=checkbox]) { min-width:0; flex:1; }
-.rm040-llm .rm040-note { color:#b7bac1; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; margin:7px 0; }
-.rm040-llm .rm040-error { color:#ffb5a8; }
-.rm040-llm .rm040-key-status-ready { border-color:#35b56a; background:#194d2d; }
-.rm040-llm .rm040-key-status-missing { border-color:#d45b5b; background:#542424; }
-.rm040-llm .rm040-key-status-unknown { border-color:#777; }
-.rm040-llm .rm040-param { border-bottom:1px solid #444; padding:3px 0 7px; }
-.rm040-llm .rm040-param label { display:flex; gap:5px; align-items:center; }
-.rm040-llm .rm040-param textarea { min-height:45px; }
-.rm040-llm.rm040-widget-row { padding:0 16px 4px 26px; overflow:hidden; display:flex; flex-direction:column; height:auto; background:transparent; pointer-events:none; }
-.rm040-widget-row > * { pointer-events:auto; }
-.rm040-widget-row[hidden] { display:none !important; }
-.rm040-widget-row.rm040-model-heading { justify-content:center; text-align:center; padding:4px 16px; }
-.rm040-model-name { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.12; font-weight:500; }
-.rm040-heading-pair { display:flex; flex-direction:column; gap:2px; flex:none; min-width:0; width:100%; }
-.rm040-heading-pair + .rm040-heading-pair { margin-top:8px; }
-.rm040-model-heading .rm040-note { font-size:12px; line-height:16px; margin:0 !important; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; }
-.rm040-widget-row input[role=switch] { appearance:none; box-sizing:border-box; width:44px; height:24px; flex:none; border:1px solid #777; border-radius:12px; background:#444; cursor:pointer; margin:0; }
-.rm040-widget-row input[role=switch]::before { content:""; display:block; width:18px; height:18px; border-radius:50%; background:#eee; margin:2px; transition:transform .12s; }
-.rm040-widget-row input[role=switch]:checked { background:#237aaf; }
-.rm040-widget-row input[role=switch]:checked::before { transform:translateX(20px); }
-.rm040-widget-row input[role=switch]:disabled { opacity:.5; cursor:default; }
-.rm040-widget-row input[type=range] { appearance:none; box-sizing:border-box; height:24px; padding:2px; margin:0; border:1px solid #777; border-radius:12px; background:linear-gradient(to right,#237aaf var(--rm040-fill,50%),#444 var(--rm040-fill,50%)); cursor:pointer; }
-.rm040-widget-row input[type=range]::-webkit-slider-runnable-track { height:18px; background:transparent; border:0; }
-.rm040-widget-row input[type=range]::-webkit-slider-thumb { appearance:none; width:18px; height:18px; border:0; border-radius:50%; background:#eee; }
-.rm040-widget-row input[type=range]::-moz-range-track { height:18px; background:transparent; border:0; }
-.rm040-widget-row input[type=range]::-moz-range-thumb { width:18px; height:18px; border:0; border-radius:50%; background:#eee; }
-.rm040-widget-row input[type=range]:disabled { opacity:.5; cursor:default; }
-.rm040-widget-row .rm040-section { font-size:18px; line-height:24px; font-weight:bold; width:100%; border:0; border-bottom:1px solid #666; background:transparent; padding:6px 0; }
-.rm040-widget-row.rm040-compact > :not(label) { display:none; }
-.rm040-widget-row .rm040-default { margin-left:auto; font-size:11px; padding:3px 6px; }
-.rm040-widget-row > label { margin:0; line-height:20px; min-height:20px; }
-.rm040-widget-row > label.rm040-media-unavailable { color:#888; }
-.rm040-widget-row > textarea { flex:1; min-height:40px; resize:none; }
-.rm040-widget-row .rm040-note { margin:3px 0; }
-.rm040-widget-row.rm040-param { border-bottom:1px solid #444; }
-.rm040-widget-row.rm040-param > .rm040-note:not(.rm040-error) { display:none; }
-.rm040-llm [hidden] { display:none !important; }
-.rm040-llm .rm040-model-dropdown { flex:none; margin-top:4px; border:1px solid var(--border-color,#666); border-radius:4px; overflow:hidden; box-sizing:border-box; background:var(--comfy-input-bg,#333); }
-.rm040-llm .rm040-model-options { max-height:320px; overflow:auto; overscroll-behavior:contain; }
-.rm040-llm .rm040-model-option { display:block; width:100%; height:32px; border:0; border-radius:0; padding:6px 8px; margin:0; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.rm040-llm .rm040-model-option:hover,.rm040-llm .rm040-model-option[aria-selected=true] { background:var(--comfy-input-bg-hover,#444); }
-.rm040-llm .rm040-model-empty { height:32px; padding:6px 8px; box-sizing:border-box; color:var(--descrip-text,#aaa); }
-.rm040-llm .rm040-catalog-progress { height:12px; background:var(--comfy-input-bg,#333); }
-.rm040-llm .rm040-catalog-progress-fill { height:100%; background:#35b56a; transition:width .3s; }
+.rm050-llm { color:var(--input-text,#ddd); background:var(--comfy-menu-bg,#222); padding:10px; box-sizing:border-box; font:13px sans-serif; overflow:auto; width:100%; height:100%; min-width:0; min-height:0; }
+.rm050-llm label { display:block; margin:6px 0 3px; }
+.rm050-llm input:not([type=checkbox]),.rm050-llm select,.rm050-llm textarea,.rm050-llm button { color:var(--input-text,#ddd); background:var(--comfy-input-bg,#333); border:1px solid var(--border-color,#666); border-radius:4px; padding:6px; box-sizing:border-box; max-width:100%; }
+.rm050-llm textarea { width:100%; resize:vertical; min-height:65px; }
+.rm050-llm select,.rm050-llm .rm050-wide { width:100%; }
+.rm050-llm button { cursor:pointer; text-align:left; white-space:normal; overflow-wrap:anywhere; }
+.rm050-llm .rm050-row { display:flex; gap:6px; align-items:center; margin:5px 0; }
+.rm050-llm .rm050-row > input:not([type=checkbox]) { min-width:0; flex:1; }
+.rm050-llm .rm050-note { color:#b7bac1; font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; margin:7px 0; }
+.rm050-llm .rm050-error { color:#ffb5a8; }
+.rm050-llm .rm050-key-status-ready { border-color:#35b56a; background:#194d2d; }
+.rm050-llm .rm050-key-status-missing { border-color:#d45b5b; background:#542424; }
+.rm050-llm .rm050-key-status-unknown { border-color:#777; }
+.rm050-llm .rm050-param { border-bottom:1px solid #444; padding:3px 0 7px; }
+.rm050-llm .rm050-param label { display:flex; gap:5px; align-items:center; }
+.rm050-llm .rm050-param textarea { min-height:45px; }
+.rm050-llm.rm050-widget-row { padding:0 16px 4px 26px; overflow:hidden; display:flex; flex-direction:column; height:auto; background:transparent; pointer-events:none; }
+/* The native wrapper also covers the socket gutter and sets pointer-events inline. */
+.dom-widget:has(> .rm050-widget-row) { pointer-events:none !important; }
+.rm050-widget-row > * { pointer-events:auto; }
+.rm050-widget-row[hidden] { display:none !important; }
+.rm050-widget-row.rm050-model-heading { justify-content:center; text-align:center; padding:4px 16px; }
+.rm050-model-name { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; line-height:1.12; font-weight:500; }
+.rm050-heading-pair { display:flex; flex-direction:column; gap:2px; flex:none; min-width:0; width:100%; }
+.rm050-heading-pair + .rm050-heading-pair { margin-top:8px; }
+.rm050-model-heading .rm050-note { font-size:12px; line-height:16px; margin:0 !important; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; }
+.rm050-widget-row input[role=switch] { appearance:none; box-sizing:border-box; width:44px; height:24px; flex:none; border:1px solid #777; border-radius:12px; background:#444; cursor:pointer; margin:0; }
+.rm050-widget-row input[role=switch]::before { content:""; display:block; width:18px; height:18px; border-radius:50%; background:#eee; margin:2px; transition:transform .12s; }
+.rm050-widget-row input[role=switch]:checked { background:#237aaf; }
+.rm050-widget-row input[role=switch]:checked::before { transform:translateX(20px); }
+.rm050-widget-row input[role=switch]:disabled { opacity:.5; cursor:default; }
+.rm050-widget-row input[type=range] { appearance:none; box-sizing:border-box; height:24px; padding:2px; margin:0; border:1px solid #777; border-radius:12px; background:linear-gradient(to right,#237aaf var(--rm050-fill,50%),#444 var(--rm050-fill,50%)); cursor:pointer; }
+.rm050-widget-row input[type=range]::-webkit-slider-runnable-track { height:18px; background:transparent; border:0; }
+.rm050-widget-row input[type=range]::-webkit-slider-thumb { appearance:none; width:18px; height:18px; border:0; border-radius:50%; background:#eee; }
+.rm050-widget-row input[type=range]::-moz-range-track { height:18px; background:transparent; border:0; }
+.rm050-widget-row input[type=range]::-moz-range-thumb { width:18px; height:18px; border:0; border-radius:50%; background:#eee; }
+.rm050-widget-row input[type=range]:disabled { opacity:.5; cursor:default; }
+.rm050-widget-row .rm050-section { font-size:18px; line-height:24px; font-weight:bold; width:100%; border:0; border-bottom:1px solid #666; background:transparent; padding:6px 0; }
+.rm050-widget-row.rm050-compact > :not(label) { display:none; }
+.rm050-widget-row .rm050-default { margin-left:auto; font-size:11px; padding:3px 6px; }
+.rm050-widget-row > label { margin:0; line-height:20px; min-height:20px; }
+.rm050-widget-row > label.rm050-media-unavailable { color:#888; }
+.rm050-widget-row > textarea { flex:1; min-height:40px; resize:none; }
+.rm050-widget-row .rm050-note { margin:3px 0; }
+.rm050-widget-row.rm050-param { border-bottom:1px solid #444; }
+.rm050-widget-row.rm050-param > .rm050-note:not(.rm050-error) { display:none; }
+.rm050-llm [hidden] { display:none !important; }
+.rm050-llm .rm050-model-dropdown { flex:none; margin-top:4px; border:1px solid var(--border-color,#666); border-radius:4px; overflow:hidden; box-sizing:border-box; background:var(--comfy-input-bg,#333); }
+.rm050-llm .rm050-model-options { max-height:320px; overflow:auto; overscroll-behavior:contain; }
+.rm050-llm .rm050-model-option { display:block; width:100%; height:32px; border:0; border-radius:0; padding:6px 8px; margin:0; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rm050-llm .rm050-model-option:hover,.rm050-llm .rm050-model-option[aria-selected=true] { background:var(--comfy-input-bg-hover,#444); }
+.rm050-llm .rm050-model-empty { height:32px; padding:6px 8px; box-sizing:border-box; color:var(--descrip-text,#aaa); }
+.rm050-llm .rm050-catalog-progress { height:12px; background:var(--comfy-input-bg,#333); }
+.rm050-llm .rm050-catalog-progress-fill { height:100%; background:#35b56a; transition:width .3s; }
 `;
 document.head.append(css);
 
@@ -90,7 +92,7 @@ function setValue(node, name, val) {
 }
 
 async function call(action, body) {
-    const response = await api.fetchApi(`/rm_llm_040/${action}`, {
+    const response = await api.fetchApi(`/rm_llm_050/${action}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-RM-LLM": "1" },
         body: JSON.stringify(body),
@@ -102,7 +104,7 @@ async function call(action, body) {
 
 function note(state, text, error = false) {
     state.status.textContent = text;
-    state.status.classList.toggle("rm040-error", error);
+    state.status.classList.toggle("rm050-error", error);
     layoutSections(state);
     state.node.graph?.setDirtyCanvas(true, true);
 }
@@ -183,7 +185,7 @@ function templateValue(options, name) {
 function settingDefinitions(state) {
     const definitions = { ...(state.caps?.parameters || {}) };
     for (const [name, schema] of Object.entries(state.caps?.template_parameters || {})) definitions[templatePrefix + name] = schema;
-    if (state.caps?.provider === "OpenRouter" && definitions.reasoning) {
+    if (definitions.reasoning) {
         const options = state.caps.reasoning_options || {};
         definitions["reasoning.enabled"] = { type: "boolean", default: options.mandatory ? true : options.default_enabled, description: options.mandatory ? "This model requires reasoning; it cannot be disabled." : "Enable or disable model reasoning. This does not control whether reasoning text is returned." };
         if (definitions.reasoning_effort && Array.isArray(options.supported_efforts)) {
@@ -197,9 +199,9 @@ function settingDefinitions(state) {
 function booleanSwitch(initial, schema, plainCaption = false) {
     const input = document.createElement("input");
     input.type = "checkbox"; input.setAttribute("role", "switch");
-    const line = element("div", undefined, "rm040-row");
+    const line = element("div", undefined, "rm050-row");
     const caption = element("span");
-    const reset = element("button", "Default", "rm040-default");
+    const reset = element("button", "Default", "rm050-default");
     reset.type = "button"; reset.title = "Use provider default (omit this setting)";
     let stored = "";
     const knownDefault = typeof schema.default === "boolean" ? schema.default : /^(true|false)$/i.test(schema.default_note || "") ? schema.default_note.toLowerCase() === "true" : undefined;
@@ -246,11 +248,11 @@ function layoutSections(state, fit = false) {
             button.setAttribute("aria-expanded", String(open));
             continue;
         }
-        const unavailable = ["image", "video"].includes(name) && !state.caps?.input_modalities?.includes(name) && !connected(node, name) || name === "api_key_env" && !connected(node, name) || name === "section_4" && !state.status.classList.contains("rm040-error");
+        const unavailable = ["image", "video"].includes(name) && !state.caps?.input_modalities?.includes(name) && !connected(node, name) || name === "api_key_env" && !connected(node, name) || name === "section_4" && !state.status.classList.contains("rm050-error");
         const folded = !topRows.includes(name) && sections[section] === false;
         setRowHidden(row, unavailable || folded && !connected(node, name));
         row.rmCompact = !row.hidden && (folded || name === "api_key_env");
-        row.element.classList.toggle("rm040-compact", row.rmCompact);
+        row.element.classList.toggle("rm050-compact", row.rmCompact);
         row.element.dataset.section = section;
         row.element.style.minHeight = `${row.hidden ? 0 : row.options.getMinHeight()}px`;
     }
@@ -274,11 +276,11 @@ function setRowHidden(row, hidden) {
 }
 
 function addRow(state, name, children, height, grow = false) {
-    const row = element("div", undefined, "rm040-llm rm040-widget-row");
+    const row = element("div", undefined, "rm050-llm rm050-widget-row");
     row.dataset.setting = name;
     row.append(...children);
     let w;
-    const rowHeight = () => w?.rmCompact ? 24 : (typeof height === "function" ? height() : height) + (row.querySelector(".rm040-error") ? 42 : 0);
+    const rowHeight = () => w?.rmCompact ? 24 : (typeof height === "function" ? height() : height) + (row.querySelector(".rm050-error") ? 42 : 0);
     // Vue DOM widgets use CSS sizing, independently of LiteGraph's allocation.
     row.style.minHeight = `${rowHeight()}px`;
     w = state.node.addDOMWidget(`rm_row_${name}`, "rm_llm_row", row, {
@@ -346,7 +348,7 @@ function syncMediaAvailability(state) {
             if (label) {
                 label.textContent = "N/A";
                 label.title = `${title} input is unavailable for the selected model; the connection will be ignored.`;
-                label.classList.add("rm040-media-unavailable");
+                label.classList.add("rm050-media-unavailable");
             }
         } else {
             if (defaults.color_on === undefined) delete input.color_on;
@@ -356,7 +358,7 @@ function syncMediaAvailability(state) {
             if (label) {
                 label.textContent = title;
                 label.title = "";
-                label.classList.remove("rm040-media-unavailable");
+                label.classList.remove("rm050-media-unavailable");
             }
         }
     }
@@ -373,7 +375,7 @@ function mountParameterRows(state) {
         const control = row.querySelector("input,select,textarea");
         const name = control?.getAttribute("aria-label") || "unsupported_settings";
         const w = addRow(state, name, [...row.childNodes], control?.tagName === "TEXTAREA" ? 108 : 62, control?.tagName === "TEXTAREA");
-        w.element.classList.add("rm040-param");
+        w.element.classList.add("rm050-param");
         state.parameterRows.add(name);
     }
     // Older workflows may retain an unconnected socket no longer declared by
@@ -429,11 +431,11 @@ function syncConnectedControls(state) {
 function setCreativityPosition(state, position) {
     state.creativity.value = position;
     const actual = Number(state.creativity.value);
-    state.creativity.style.setProperty("--rm040-fill", `calc(${actual}% + ${12 - .24 * actual}px)`);
+    state.creativity.style.setProperty("--rm050-fill", `calc(${actual}% + ${12 - .24 * actual}px)`);
 }
 
 function syncCreativity(state, edited) {
-    const available = ["temperature", "top_p"].every(name => Object.hasOwn(state.caps?.parameters || {}, name));
+    const available = state.caps?.creativity_supported !== false && ["temperature", "top_p"].every(name => Object.hasOwn(state.caps?.parameters || {}, name));
     const linked = connected(state.node, "creativity");
     const external = connected(state.node, "parameters_json");
     const individuallyLinked = ["temperature", "top_p"].some(name => connected(state.node, name));
@@ -481,7 +483,7 @@ function addCreativity(state) {
         setValue(state.node, "parameters_json", JSON.stringify(saved));
         renderControls(state);
     };
-    const line = element("div", undefined, "rm040-row");
+    const line = element("div", undefined, "rm050-row");
     line.append(element("span", "Min"), state.creativity, element("span", "Max"));
     addRow(state, "creativity", [element("label", "Creativity"), line], 62);
 }
@@ -518,7 +520,7 @@ function renderControls(state) {
         const optionName = nested ? name.slice(templatePrefix.length) : name;
         const reasoningToggle = name === "reasoning.enabled";
         const thinkingToggle = reasoningToggle || name === templatePrefix + "enable_thinking";
-        const row = element("div", undefined, "rm040-param");
+        const row = element("div", undefined, "rm050-param");
         const label = element("label", thinkingToggle ? "Thinking/Reasoning" : nested ? `Chat template · ${optionName}` : name);
         label.title = [schema.description || "Enter a value or connect a node to this input.", schema.evidence, schema.source, schema.default_note ? `Default: ${schema.default_note}` : ""].filter(Boolean).join("\n");
         const kinds = (Array.isArray(schema.type) ? schema.type : [schema.type]).filter(t => t !== "null");
@@ -542,7 +544,7 @@ function renderControls(state) {
             input = document.createElement("textarea"); input.value = initial === undefined ? "" : JSON.stringify(initial, null, 2);
         }
         input.placeholder = "Provider default";
-        input.className = "rm040-wide";
+        input.className = "rm050-wide";
         input.setAttribute("aria-label", name);
         input.title = label.title;
         if (nested) templateControls.set(optionName, input);
@@ -578,11 +580,11 @@ function renderControls(state) {
         if (reasoningToggle) reasoningControl = input;
         if (name === "reasoning") reasoningRaw = input;
         if (name === "chat_template_kwargs") templateControls.set("__raw", input);
-        const help = element("div", undefined, "rm040-note");
+        const help = element("div", undefined, "rm050-note");
         const guidance = name === "top_k" && state.caps.provider === "Featherless" ? "Whole number: -1 considers all tokens; a positive count such as 40 limits sampling." : kind === "integer" ? "Enter a whole number, or leave blank for provider default." : "Enter a value, leave blank for provider default, or connect another node.";
         const update = () => {
             state.invalid.delete(name);
-            input.setCustomValidity(""); input.removeAttribute("aria-invalid"); help.classList.remove("rm040-error");
+            input.setCustomValidity(""); input.removeAttribute("aria-invalid"); help.classList.remove("rm050-error");
             input.disabled = connected(state.node, name) || connected(state.node, "parameters_json") || (reasoningToggle && (connected(state.node, "reasoning") || state.caps.reasoning_options?.mandatory)) || (["temperature", "top_p"].includes(name) && connected(state.node, "creativity")) || (nested && connected(state.node, "chat_template_kwargs"));
             if (switchLine) switchLine.querySelector("button").disabled = input.disabled;
             if (input.disabled) { help.textContent = connected(state.node, name) ? "Value supplied by the connected node." : "Settings supplied by the parameters_json connection."; return; }
@@ -601,11 +603,11 @@ function renderControls(state) {
                 } catch {
                     const message = `${name}: ${kind === "integer" ? "enter a whole number" : kind === "number" ? "enter a number" : "enter valid JSON"}, or leave blank for provider default.`;
                     state.invalid.set(name, message); input.setCustomValidity(message); input.setAttribute("aria-invalid", "true");
-                    help.textContent = message; help.classList.add("rm040-error"); note(state, message, true); return;
+                    help.textContent = message; help.classList.add("rm050-error"); note(state, message, true); return;
                 }
             }
             setValue(state.node, "parameters_json", JSON.stringify(saved));
-            if (!state.invalid.size && state.status.classList.contains("rm040-error")) note(state, "Settings are valid. Connected inputs take precedence; blank fields use provider defaults.");
+            if (!state.invalid.size && state.status.classList.contains("rm050-error")) note(state, "Settings are valid. Connected inputs take precedence; blank fields use provider defaults.");
         };
         const edited = () => {
             if (reasoningToggle && !input.disabled && input.value !== "") {
@@ -690,15 +692,15 @@ function watchCatalog(provider, update, active = () => true) {
 let modelListSequence = 0;
 function installModelPicker(state) {
     const input = state.model;
-    const dropdown = element("div", undefined, "rm040-model-dropdown");
-    const list = element("div", undefined, "rm040-model-options");
-    list.id = `rm040-model-options-${++modelListSequence}`;
+    const dropdown = element("div", undefined, "rm050-model-dropdown");
+    const list = element("div", undefined, "rm050-model-options");
+    list.id = `rm050-model-options-${++modelListSequence}`;
     list.setAttribute("role", "listbox");
     list.setAttribute("aria-label", "Models");
-    const progress = element("div", undefined, "rm040-catalog-progress");
+    const progress = element("div", undefined, "rm050-catalog-progress");
     progress.setAttribute("role", "progressbar");
     progress.setAttribute("aria-valuemin", "0"); progress.setAttribute("aria-valuemax", "100");
-    const fill = element("div", undefined, "rm040-catalog-progress-fill");
+    const fill = element("div", undefined, "rm050-catalog-progress-fill");
     progress.append(fill);
     dropdown.append(list, progress); dropdown.hidden = true;
     state.rows.get("model_name").element.append(dropdown);
@@ -733,7 +735,7 @@ function installModelPicker(state) {
         const end = Math.min(matches.length, shown + 50);
         for (; shown < end; shown++) {
             const model = matches[shown], index = shown;
-            const option = element("button", model.id, "rm040-model-option");
+            const option = element("button", model.id, "rm050-model-option");
             option.type = "button"; option.tabIndex = -1; option.id = `${list.id}-${index}`;
             option.title = `${model.name || model.id}${model.available_on_current_plan === false ? " (not on current plan)" : ""}`;
             option.setAttribute("role", "option"); option.setAttribute("aria-selected", String(index === active));
@@ -768,7 +770,7 @@ function installModelPicker(state) {
             resize(18);
         } else {
             if (matches.length) appendOptions();
-            else list.append(element("div", "No matching models", "rm040-model-empty"));
+            else list.append(element("div", "No matching models", "rm050-model-empty"));
             resize(Math.max(1, Math.min(10, matches.length)) * 32 + 6);
         }
     }
@@ -841,15 +843,15 @@ function installModelPicker(state) {
 }
 
 function addModelHeading(state) {
-    const providerText = element("span", "", "rm040-model-name");
-    const countText = element("span", "Models: —", "rm040-note");
-    const providerPair = element("div", undefined, "rm040-heading-pair");
+    const providerText = element("span", "", "rm050-model-name");
+    const countText = element("span", "Models: —", "rm050-note");
+    const providerPair = element("div", undefined, "rm050-heading-pair");
     providerPair.append(providerText, countText);
-    const text = element("span", "", "rm040-model-name");
-    const modelPair = element("div", undefined, "rm040-heading-pair");
+    const text = element("span", "", "rm050-model-name");
+    const modelPair = element("div", undefined, "rm050-heading-pair");
     modelPair.append(text, state.capInfo);
     const row = addRow(state, "model_heading", [providerPair, modelPair], 128);
-    row.element.classList.add("rm040-model-heading");
+    row.element.classList.add("rm050-model-heading");
     const counts = new Map();
     let requestedProvider, removedNode = false;
     const updateCount = () => {
@@ -913,13 +915,13 @@ function setup(node, nodeData) {
         w.options.hidden = true;
         if (w.inputEl) w.inputEl.style.display = "none";
     }
-    const panel = element("div", undefined, "rm040-llm");
+    const panel = element("div", undefined, "rm050-llm");
     const state = { node, panel, disposers: [], sessions: {}, models: {}, caps: null, revision: 0, invalid: new Map(), validators: new Map(), bindings: new Map(), rows: new Map(), socketWidgets: new Map(), parameterRows: new Set() };
     states.set(node, state);
     function label(text, control) { panel.append(element("label", text), control); return control; }
     function bound(name, tag = "input") {
         const input = document.createElement(tag);
-        input.className = "rm040-wide";
+        input.className = "rm050-wide";
         input.value = value(node, name) ?? "";
         input.oninput = () => setValue(node, name, name === "timeout_seconds" ? Number(input.value) : input.value);
         state.bindings.set(name, input);
@@ -931,7 +933,7 @@ function setup(node, nodeData) {
     }
     label("Provider", state.provider);
     state.bindings.set("provider", state.provider);
-    state.model = document.createElement("input"); state.model.className = "rm040-wide";
+    state.model = document.createElement("input"); state.model.className = "rm050-wide";
     state.model.type = "text"; state.model.value = value(node, "model_name") || "";
     state.model.placeholder = "Type or select a model"; state.model.autocomplete = "off"; state.model.spellcheck = false;
     state.model.setAttribute("aria-label", "Model Name");
@@ -943,7 +945,7 @@ function setup(node, nodeData) {
     label("API Key System", state.mode);
     state.bindings.set("credential_source", state.mode);
     state.env = label("API-key environment variable name", bound("api_key_env"));
-    const keyRow = element("div", undefined, "rm040-row");
+    const keyRow = element("div", undefined, "rm050-row");
     const password = document.createElement("input");
     password.type = "password"; password.autocomplete = "off"; password.placeholder = "Paste API key";
     password.setAttribute("aria-label", "API key"); password.spellcheck = false;
@@ -951,8 +953,8 @@ function setup(node, nodeData) {
     keyRow.append(password, setKey);
     label("API Key (Key hidden. Never shared in workflows.)", keyRow);
     const setKeyStatus = (status) => {
-        setKey.classList.remove("rm040-key-status-ready", "rm040-key-status-missing", "rm040-key-status-unknown");
-        setKey.classList.add(`rm040-key-status-${status}`);
+        setKey.classList.remove("rm050-key-status-ready", "rm050-key-status-missing", "rm050-key-status-unknown");
+        setKey.classList.add(`rm050-key-status-${status}`);
         setKey.setAttribute("aria-label", status === "ready" ? "API key available" : status === "missing" ? "API key needed" : "API key status unknown");
     };
     const refreshCredentialStatus = async () => {
@@ -1018,11 +1020,11 @@ function setup(node, nodeData) {
     state.user = label("User Prompt", bound("user_prompt", "textarea"));
     state.parameters = label("Additional settings (JSON)", bound("parameters_json", "textarea"));
     state.parameters.onchange = () => { setValue(node, "parameters_json", state.parameters.value); renderControls(state); };
-    state.capInfo = element("div", "Context: —  |  Output limit: —", "rm040-note"); panel.append(state.capInfo);
+    state.capInfo = element("div", "Context: —  |  Output limit: —", "rm050-note"); panel.append(state.capInfo);
     state.controls = element("div"); panel.append(state.controls);
     state.timeout = label("Request timeout (seconds)", bound("timeout_seconds"));
     state.timeout.type = "number"; state.timeout.min = "10"; state.timeout.max = "3600";
-    state.status = element("div", "Ready. Model weights remain hosted by the provider.", "rm040-note"); panel.append(state.status);
+    state.status = element("div", "Ready. Model weights remain hosted by the provider.", "rm050-note"); panel.append(state.status);
     state.output = document.createElement("textarea"); state.output.readOnly = true; state.output.placeholder = "Response preview"; panel.append(state.output);
     const displayRows = new Map([[keyRow, "section_0"], [state.status, "section_4"], [state.output, "section_5"]]);
     for (const child of [...panel.children]) {
@@ -1032,14 +1034,14 @@ function setup(node, nodeData) {
         const control = children.at(-1);
         const name = [...state.bindings].find(([, el]) => el === control)?.[0] || displayRows.get(control);
         const multiline = control.tagName === "TEXTAREA";
-        addRow(state, name, children, name === "model_name" ? () => 58 + (state.modelDropdownHeight || 0) : multiline ? 108 : control === keyRow ? 64 : child.classList.contains("rm040-note") ? 36 : 58, multiline);
+        addRow(state, name, children, name === "model_name" ? () => 58 + (state.modelDropdownHeight || 0) : multiline ? 108 : control === keyRow ? 64 : child.classList.contains("rm050-note") ? 36 : 58, multiline);
     }
     state.console = document.createElement("input");
     state.console.type = "checkbox";
     state.console.setAttribute("role", "switch");
     state.console.setAttribute("aria-label", "Console output");
     const consoleState = element("span", "Off");
-    const consoleLine = element("div", undefined, "rm040-row");
+    const consoleLine = element("div", undefined, "rm050-row");
     consoleLine.append(state.console, consoleState);
     state.console.onchange = () => {
         setValue(node, "console_output", state.console.checked);
@@ -1056,7 +1058,7 @@ function setup(node, nodeData) {
         addRow(state, "agent_request", [label], 24);
     }
     for (const name of ["model", "standard", "advanced"]) {
-        const button = element("button", undefined, "rm040-section");
+        const button = element("button", undefined, "rm050-section");
         button.type = "button";
         button.onclick = () => {
             const sections = node.properties.rm_llm_sections;
@@ -1239,7 +1241,7 @@ function restoreStableInputs(graphData) {
 }
 
 app.registerExtension({
-    name: "RM.LLM.040",
+    name: "RM.LLM.050",
     beforeRegisterNodeDef(_nodeType, nodeData) {
         if (nodeData.name === NODE_ID) nodeDefinitions.set(NODE_ID, nodeData);
     },
@@ -1274,7 +1276,7 @@ app.registerExtension({
     },
     setup() {
         observeGraph(app.rootGraph);
-        api.addEventListener("rm040-llm-model", ({ detail }) => {
+        api.addEventListener("rm050-llm-model", ({ detail }) => {
             const node = executionNode(app.rootGraph, detail.node);
             const state = node && states.get(node);
             if (state) receiveModel(state, detail.model_info);

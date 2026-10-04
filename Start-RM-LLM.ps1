@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $rmRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 if (-not (Test-Path -LiteralPath "$rmRoot\python_embeded\python.exe") -or
     -not (Test-Path -LiteralPath "$rmRoot\ComfyUI\main.py")) {
-    throw 'This launcher requires RM-LLM 0.4.0 inside a portable ComfyUI/custom_nodes directory. Otherwise use your normal ComfyUI launcher.'
+    throw 'This launcher requires RM-LLM 0.5.0 inside a portable ComfyUI/custom_nodes directory. Otherwise use your normal ComfyUI launcher.'
 }
 
 foreach ($rmName in @('OPENROUTER_API_KEY', 'FEATHERLESS_API_KEY', 'LITHOSAI_API_KEY')) {

@@ -2,6 +2,17 @@
 
 Dates identify the recorded changes, not Comfy Registry publication timestamps.
 
+## [0.5.0] - 2026-10-04
+
+- Add OpenAI, Google Gemini, Anthropic, DeepSeek, Groq, Mistral AI, xAI, Together AI and Fireworks AI, retaining OpenRouter, Featherless and LithosAI.
+- Adapt authenticated model discovery and pagination to each provider, with cached catalogues and manual model IDs.
+- Add native Claude/Gemini requests and streaming, supported media, reasoning controls and normalized outputs retaining native response data.
+- Reuse the provider-specific environment/session key process and stable native frontend hooks.
+- Register separate 0.5.0 node IDs and routes for installation alongside 0.4.0.
+- Restore native socket dragging by keeping the HTML widget wrapper from intercepting socket clicks; confirmed working by the user.
+- Expand the README with all twelve providers, Featherless model discovery and LithosAI's speed focus.
+- Add offline provider contract tests. User-tested locally on Windows; full live provider/account coverage and non-Windows checks remain pending.
+
 ## [0.4.0] - 2026-10-03
 
 - Use native ComfyUI extension hooks and widget layout for the collapsible Model, Simple and Advanced sections.

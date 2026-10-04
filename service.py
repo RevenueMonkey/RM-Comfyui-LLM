@@ -22,6 +22,7 @@ try:
 except ImportError:  # pragma: no cover - allows lightweight offline imports
     folder_paths = None
 from .template_options import DOC_URL, discover_template_options, parse_family_records
+from . import providers as adapters
 from .environment_store import read_persistent_environment, write_persistent_environment
 
 ROOT = Path(__file__).resolve().parent
@@ -30,6 +31,7 @@ PROVIDERS = {
     "Featherless": ("https://api.featherless.ai/v1", "FEATHERLESS_API_KEY"),
     "LithosAI": ("https://api.lithosai.cloud/v1", "LITHOSAI_API_KEY"),
 }
+PROVIDERS.update(adapters.PROVIDERS)
 RECORD_PATH = ROOT / "capability_records.json"
 LOCK = threading.RLock()
 DETAILS = {}
@@ -116,7 +118,7 @@ def provider_error(status, raw, key="", retry_header=None, *, http_status=None):
 
 def provider_info(provider):
     if provider not in PROVIDERS:
-        raise RMError("Select OpenRouter, Featherless, or LithosAI.")
+        raise RMError("Select a supported provider.")
     return PROVIDERS[provider]
 
 
@@ -207,9 +209,11 @@ def consume_key(provider, ticket, env_name):
     return entry[2]
 
 
-async def request_json(url, key="", body=None, timeout=45):
+async def request_json(url, key="", body=None, timeout=45, *, extra_headers=None, allow_list=False):
     headers = {"User-Agent": "RM-LLM/1.0", "Accept": "application/json"}
-    if key:
+    if extra_headers is not None:
+        headers.update(extra_headers)
+    elif key:
         headers["Authorization"] = "Bearer " + key
     try:
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout, connect=20)) as client:
@@ -233,6 +237,8 @@ async def request_json(url, key="", body=None, timeout=45):
                     if len(data) > MAX_RESPONSE_BYTES:
                         raise RMError("Provider response exceeds 64 MiB.")
                 result = json.loads(data)
+                if allow_list and isinstance(result, list):
+                    return result
                 if not isinstance(result, dict):
                     raise RMError("Provider returned an unexpected JSON response.")
                 if result.get("error"):
@@ -249,14 +255,14 @@ async def request_json(url, key="", body=None, timeout=45):
 
 def read_records():
     with LOCK:
-        return json.loads(RECORD_PATH.read_text(encoding="utf-8"))
+        return {**json.loads(RECORD_PATH.read_text(encoding="utf-8")), **adapters.records()}
 
 
 def catalog_cache_path():
     """Keep model catalogs in ComfyUI user data, never in the node package."""
     getter = getattr(folder_paths, "get_user_directory", None)
     user_dir = getter() if getter else ROOT
-    path = Path(user_dir) / "RM-LLM-0.4.0" / "catalog_cache.json"
+    path = Path(user_dir) / "RM-LLM-0.5.0" / "catalog_cache.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -317,6 +323,12 @@ def featherless_modalities(raw):
 
 
 async def refresh_records(provider):
+    if provider in adapters.PROVIDERS:
+        # Reviewed contracts change with releases; do not claim an online schema refresh.
+        with LOCK:
+            DETAILS.clear()
+            CATALOG_CACHE.pop(provider, None)
+        return adapters.records()[provider]
     records = read_records()
     if provider == "OpenRouter":
         doc = await request_json("https://openrouter.ai/openapi.json")
@@ -609,6 +621,14 @@ async def _fetch_catalog(provider, key="", force=False):
         set_catalog_progress(provider, state="ready", count=len(catalog), retry_at=0)
         return copy.deepcopy(catalog)
     set_catalog_progress(provider, state="loading", count=0, page=1, total_pages=0, total=0, retry_at=0)
+    if provider in adapters.PROVIDERS:
+        catalog = await adapters.catalog(provider, key, request_json, set_catalog_progress)
+        with LOCK:
+            CATALOG_CACHE[provider] = (time.monotonic(), catalog)
+            CATALOG_STATUS[provider] = {"source": "live catalog", "warning": ""}
+        write_catalog_cache(provider, catalog)
+        set_catalog_progress(provider, state="ready", count=len(catalog), total=len(catalog), retry_at=0)
+        return copy.deepcopy(catalog)
     url = base + "/models"
     models = {}
     seen = set()
@@ -661,6 +681,14 @@ async def model_capabilities(provider, model, refresh=False, key=""):
         cached = DETAILS.get(cache_key)
         if cached and not refresh and time.monotonic() - cached[0] < 300:
             return copy.deepcopy(cached[1])
+    if provider in adapters.PROVIDERS:
+        raw = await adapters.metadata(provider, model, key, request_json, fetch_catalog)
+        result = adapters.capabilities(provider, model, raw)
+        with LOCK:
+            DETAILS[cache_key] = (time.monotonic(), result)
+            if len(DETAILS) > 256:
+                del DETAILS[next(iter(DETAILS))]
+        return copy.deepcopy(result)
     records = read_records()[provider]
     encoded = quote(model, safe="/")
     if provider == "OpenRouter":
@@ -790,4 +818,4 @@ async def api_request(request):
 
 
 def register_routes():
-    PromptServer.instance.routes.post("/rm_llm_040/{action}")(api_request)
+    PromptServer.instance.routes.post("/rm_llm_050/{action}")(api_request)
