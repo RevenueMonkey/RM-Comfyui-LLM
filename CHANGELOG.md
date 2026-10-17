@@ -2,6 +2,16 @@
 
 Dates identify the recorded changes, not Comfy Registry publication timestamps.
 
+## [0.7.0] - 2026-10-17
+
+- Show API-reported precision beside OpenRouter hosts, including Precision unknown when undisclosed.
+- Stabilise RM-LLM labels and row dimensions against theme styling while preserving collapsible sections; Easy-Use visual verification remains user-led.
+- Add router as the first inline dropdown: OpenRouter or Direct.
+- Support model-first and hosting-provider-first discovery through OpenRouter's official endpoints, with a five-minute provider/filter cache.
+- Enforce selected hosts and use endpoint-specific controls and limits; Auto retains automatic routing.
+- Preserve legacy provider inputs, node IDs, widget order and workflow connections; add router and hosting_provider inputs at the end of the schema.
+- Keep OpenRouter credentials separate from direct provider credentials. No local-server support or extra generation calls.
+
 ## [0.6.0] - 2026-10-04
 
 - Give api_key_system the same inline searchable picker, reusing the Provider picker while preserving the two credential modes and key storage.

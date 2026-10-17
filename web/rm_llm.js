@@ -2,6 +2,7 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { creativityToSampling, samplingToCreativity } from "./sampling.js";
 import { providerStatus } from "./provider_status.js";
+import { routerMode, hostMatches, selectedCapabilities } from "./routing.js";
 
 const states = new WeakMap();
 const nodeDefinitions = new Map();
@@ -48,7 +49,18 @@ css.textContent = `
 .rm050-llm .rm050-param textarea { min-height:45px; }
 .rm050-llm.rm050-widget-row { padding:0 16px 4px 26px; overflow:hidden; display:flex; flex-direction:column; height:auto; background:transparent; pointer-events:none; }
 /* The native wrapper also covers the socket gutter and sets pointer-events inline. */
-.dom-widget:has(> .rm050-widget-row) { pointer-events:none !important; }
+/* Theme extensions can pad every DOM wrapper; our rows own their padding. */
+.dom-widget:has(> .rm050-widget-row) { pointer-events:none !important; padding:0 !important; box-sizing:border-box; }
+/* Keep the fixed row allocation independent of theme form-control metrics. */
+.rm050-llm.rm050-widget-row > label { flex:0 0 20px; display:block; color:var(--input-text,#ddd); font:13px/20px sans-serif; padding:0; }
+.rm050-llm.rm050-widget-row input:not([role=switch]):not([type=range]),
+.rm050-llm.rm050-widget-row select,
+.rm050-llm.rm050-widget-row textarea,
+.rm050-llm.rm050-widget-row button:not(.rm050-section) { font:13px/18px sans-serif; }
+.rm050-llm.rm050-widget-row > input,
+.rm050-llm.rm050-widget-row > select,
+.rm050-llm.rm050-widget-row > button,
+.rm050-llm.rm050-widget-row > .rm050-row { flex-shrink:0; }
 .rm050-widget-row > * { pointer-events:auto; }
 .rm050-budget-bar { height:10px; flex:none; border:1px solid var(--border-color,#666); border-radius:6px; background:transparent; overflow:hidden; margin-top:5px; }
 .rm050-budget-fill { height:100%; background:#35b56a; }
@@ -113,7 +125,7 @@ function setValue(node, name, val) {
     if (name === "parameters_json" && field && document.activeElement !== field) field.value = val;
     if (name === "model_name") states.get(node)?.updateModelHeading?.();
     const state = states.get(node);
-    if (changed && ["provider", "model_name", "credential_source", "api_key_env"].includes(name)) state?.resetProviderStatus?.();
+    if (changed && ["router", "hosting_provider", "provider", "model_name", "credential_source", "api_key_env"].includes(name)) state?.resetProviderStatus?.();
     if (changed && ["provider", "model_name"].includes(name) && state?.budgetBars) displayBudgetUsage(state, null);
     node.graph?.setDirtyCanvas(true, true);
 }
@@ -154,6 +166,7 @@ function selection(state) {
 }
 
 const coreSockets = { provider: "STRING", model_name: "STRING", api_key_env: "STRING", credential_source: "STRING", system_prompt: "STRING", user_prompt: "STRING", parameters_json: "STRING", timeout_seconds: "INT", console_output: "BOOLEAN", input_budget: "INT", thinking_budget: "INT", output_budget: "INT" };
+Object.assign(coreSockets, { router: "STRING", hosting_provider: "STRING" });
 
 function connected(node, name) {
     return node.inputs?.some(input => input.name === name && input.link != null) ?? false;
@@ -182,19 +195,33 @@ function connectedStaticString(node, name) {
 }
 
 function modelSelection(state) {
+    const provider = connected(state.node, "provider") ? connectedStaticString(state.node, "provider") ?? state.runtimeModel?.provider : value(state.node, "provider");
+    const router = connectedStaticString(state.node, "router") ?? (connected(state.node, "router") ? state.runtimeModel?.router : value(state.node, "router"));
     return {
-        provider: connected(state.node, "provider") ? connectedStaticString(state.node, "provider") ?? state.runtimeModel?.provider : value(state.node, "provider"),
+        provider: router === "OpenRouter" ? "OpenRouter" : provider,
         model: connected(state.node, "model_name") ? connectedStaticString(state.node, "model_name") ?? state.runtimeModel?.model : value(state.node, "model_name"),
     };
+}
+
+function routingMode(state) {
+    return routerMode(connectedStaticString(state.node, "router") ?? (connected(state.node, "router") ? state.runtimeModel?.router : value(state.node, "router")), modelSelection(state).provider);
+}
+function hostingProvider(state) {
+    return connectedStaticString(state.node, "hosting_provider") ?? (connected(state.node, "hosting_provider") ? state.runtimeModel?.hosting_provider : value(state.node, "hosting_provider")) ?? "Auto";
+}
+function catalogKey(state) {
+    const provider = modelSelection(state).provider;
+    return provider === "OpenRouter" ? `${provider}:${hostingProvider(state)}` : provider;
 }
 
 function receiveModel(state, model) {
     if (!model?.provider || !model?.model) return;
     const before = modelSelection(state);
+    const previousHost = hostingProvider(state);
     state.runtimeModel = model;
     const after = modelSelection(state);
     state.updateModelHeading?.();
-    if (before.provider !== after.provider || before.model !== after.model || state.caps?.provider !== after.provider || state.caps?.model !== after.model) void loadCapabilities(state);
+    if (previousHost !== hostingProvider(state) || before.provider !== after.provider || before.model !== after.model || state.caps?.provider !== after.provider || state.caps?.model !== after.model) void loadCapabilities(state);
 }
 
 function executionNode(graph, id) {
@@ -263,7 +290,7 @@ function layoutSections(state, fit = false) {
     const node = state.node;
     const sections = node.properties.rm_llm_sections ||= { model: false, standard: false, advanced: false };
     const topRows = ["model_heading"];
-    const modelRows = ["provider", "model_name", "credential_source", "api_key_env", "section_0", "timeout_seconds", "provider_status", "section_4"];
+    const modelRows = ["router", "provider", "hosting_provider", "model_name", "credential_source", "api_key_env", "section_0", "timeout_seconds", "provider_status", "section_4"];
     const simpleRows = ["image", "video", "system_prompt", "user_prompt", "creativity", templatePrefix + "enable_thinking", "reasoning.enabled"];
     const advancedOrder = ["input_budget", "thinking_budget", "output_budget", "temperature", "top_p", "agent_request", "stream_options", ...state.parameterRows, "parameters_json", "section_5"];
     const advanced = [...new Set([...advancedOrder, ...state.rows.keys()])].filter(name => !topRows.includes(name) && !simpleRows.includes(name) && !modelRows.includes(name) && !name.startsWith("heading_") && name !== "console_output");
@@ -283,16 +310,17 @@ function layoutSections(state, fit = false) {
             button.setAttribute("aria-expanded", String(open));
             continue;
         }
-        const unavailable = ["image", "video"].includes(name) && !state.caps?.input_modalities?.includes(name) && !connected(node, name) || name === "api_key_env" && !connected(node, name) || name === "section_4" && !state.status.classList.contains("rm050-error");
+        const routingHidden = name === "hosting_provider" && routingMode(state) !== "OpenRouter" || name === "provider" && routingMode(state) === "OpenRouter";
+        const unavailable = routingHidden && !connected(node, name) || ["image", "video"].includes(name) && !state.caps?.input_modalities?.includes(name) && !connected(node, name) || name === "api_key_env" && !connected(node, name) || name === "section_4" && !state.status.classList.contains("rm050-error");
         const folded = !topRows.includes(name) && sections[section] === false;
         setRowHidden(row, unavailable || folded && !connected(node, name));
         row.rmCompact = !row.hidden && (folded || name === "api_key_env");
         row.element.classList.toggle("rm050-compact", row.rmCompact);
         row.element.dataset.section = section;
-        row.element.style.minHeight = `${row.hidden ? 0 : row.options.getMinHeight()}px`;
+        sizeRowElement(row);
     }
-    for (const [name, input, picker] of [["provider", state.provider, state.providerPicker], ["credential_source", state.mode, state.modePicker]]) {
-        if (input.disabled || state.rows.get(name)?.hidden || state.rows.get(name)?.rmCompact) picker?.close(false);
+    for (const [name, input, picker] of [["router", state.router, state.routerPicker], ["hosting_provider", state.host, state.hostPicker], ["provider", state.provider, state.providerPicker], ["credential_source", state.mode, state.modePicker]]) {
+        if (input?.disabled || state.rows.get(name)?.hidden || state.rows.get(name)?.rmCompact) picker?.close(false);
     }
     if (state.model.disabled || state.rows.get("model_name")?.hidden || state.rows.get("model_name")?.rmCompact) state.modelPicker?.close(false);
     // Reinsert existing widgets through the native API: it tells the renderer
@@ -313,6 +341,14 @@ function setRowHidden(row, hidden) {
     row.element.hidden = hidden;
 }
 
+function sizeRowElement(row) {
+    const height = row.hidden ? 0 : row.options.getMinHeight();
+    const flexible = row.rmGrow && !row.rmCompact && !row.hidden;
+    row.element.style.minHeight = `${height}px`;
+    row.element.style.height = flexible ? "100%" : `${height}px`;
+    row.element.style.maxHeight = flexible ? "none" : `${height}px`;
+}
+
 function addRow(state, name, children, height, grow = false) {
     const row = element("div", undefined, "rm050-llm rm050-widget-row");
     row.dataset.setting = name;
@@ -327,6 +363,8 @@ function addRow(state, name, children, height, grow = false) {
         getValue: () => "", setValue: () => {}, serialize: false,
     });
     w.serialize = false;
+    w.rmGrow = grow;
+    sizeRowElement(w);
     state.rows.set(name, w);
     return w;
 }
@@ -730,6 +768,7 @@ async function loadCapabilities(state) {
     state.validators.clear();
     state.invalid.clear();
     state.caps = null;
+    state.allCaps = null;
     state.capInfo.textContent = "Context: —  |  Output limit: —";
     state.controls.replaceChildren();
     mountParameterRows(state);
@@ -746,7 +785,17 @@ async function loadCapabilities(state) {
     try {
         const caps = await call("capabilities", { ...selection(state), provider, model }, state);
         if (state.revision !== revision) return;
-        state.caps = caps;
+        state.allCaps = caps;
+        let host = provider === "OpenRouter" ? hostingProvider(state) : "Auto";
+        if (!selectedCapabilities(caps, host)) {
+            if (connected(state.node, "hosting_provider")) throw new Error("The connected hosting provider does not serve this model.");
+            host = "Auto";
+            setValue(state.node, "hosting_provider", host);
+            state.host.value = host;
+        }
+        state.caps = selectedCapabilities(caps, host);
+        state.hostPicker?.refresh();
+        state.updateModelHeading?.();
         syncSockets(state);
         renderControls(state);
         syncConnectedControls(state);
@@ -808,9 +857,9 @@ function installModelPicker(state) {
     }
     function commit(model = input.value.trim()) {
         if (input.disabled) return close();
-        const provider = value(state.node, "provider");
+        const provider = modelSelection(state).provider;
         if (provider !== committed.provider || model !== committed.model) {
-            setValue(state.node, "parameters_json", "{}"); setValue(state.node, "endpoint", "Auto");
+            setValue(state.node, "parameters_json", "{}");
         }
         setValue(state.node, "model_name", model); input.value = model;
         const changed = provider !== committed.provider || model !== committed.model;
@@ -832,8 +881,8 @@ function installModelPicker(state) {
     }
     function render() {
         if (!open || removed) return;
-        const provider = value(state.node, "provider"), models = state.models[provider] || [];
-        const load = loads.get(provider);
+        const provider = modelSelection(state).provider, key = catalogKey(state), models = state.models[key] || [];
+        const load = loads.get(key);
         const q = input.value.toLocaleLowerCase().trim();
         matches = models.filter(model => `${model.id} ${model.name || ""}`.toLocaleLowerCase().includes(q));
         active = -1; shown = 0; input.removeAttribute("aria-activedescendant");
@@ -861,19 +910,22 @@ function installModelPicker(state) {
         }
     }
     async function loadCatalog(provider) {
-        if (loads.get(provider)?.loading) return;
+        const key = catalogKey(state), host = hostingProvider(state);
+        if (loads.get(key)?.loading) return;
         const load = { loading: true, progress: {}, fraction: 0.03, error: "" };
-        loads.set(provider, load);
+        loads.set(key, load);
         render();
-        load.stop = watchCatalog(provider, p => {
+        load.stop = provider === "OpenRouter" && host !== "Auto" ? () => {} : watchCatalog(provider, p => {
             load.progress = p;
             state.updateCatalogCount?.(provider, p.count);
-            if (provider === value(state.node, "provider") && !state.models[provider]?.length) render();
+            if (key === catalogKey(state) && !state.models[key]?.length) render();
         }, () => !removed);
         try {
-            const response = await call("models", { ...selection(state), provider }, state);
+            const response = provider === "OpenRouter" && host !== "Auto"
+                ? await call("routing_catalog", { provider, host }, state)
+                : await call("models", { ...selection(state), provider }, state);
             if (removed) return;
-            state.models[provider] = response.models;
+            state.models[key] = response.models;
             state.updateCatalogCount?.(provider, response.models.length);
             load.progress = response.progress || {};
             load.error = response.warning || "";
@@ -882,20 +934,20 @@ function installModelPicker(state) {
             load.progress.state = "failed";
         } finally {
             load.loading = false; load.stop();
-            if (provider === value(state.node, "provider")) render();
+            if (key === catalogKey(state)) render();
         }
     }
     function show() {
         if (input.disabled || removed) return;
         open = true; dropdown.hidden = false; input.setAttribute("aria-expanded", "true"); render();
-        const provider = value(state.node, "provider");
-        if (!state.models[provider]?.length || loads.get(provider)?.error) void loadCatalog(provider);
+        const provider = modelSelection(state).provider, key = catalogKey(state);
+        if (!state.models[key]?.length || loads.get(key)?.error) void loadCatalog(provider);
     }
     input.onfocus = show;
     input.onclick = () => { if (!open) show(); };
     input.oninput = () => {
         if (input.value !== value(state.node, "model_name")) {
-            setValue(state.node, "parameters_json", "{}"); setValue(state.node, "endpoint", "Auto");
+            setValue(state.node, "parameters_json", "{}");
         }
         setValue(state.node, "model_name", input.value);
         if (open) render(); else show();
@@ -919,7 +971,7 @@ function installModelPicker(state) {
     list.onscroll = () => { if (list.scrollTop + list.clientHeight >= list.scrollHeight - 32) appendOptions(); };
     list.onwheel = event => event.stopPropagation();
     state.modelPicker = {
-        close,
+        close, reload() { close(); void loadCatalog(modelSelection(state).provider); },
         sync() { close(); committed = modelSelection(state); input.value = committed.model || ""; },
     };
     state.disposers.push(() => {
@@ -951,14 +1003,14 @@ function installChoicePicker(state, name, input, choices, display, apply) {
         if (fit && changed) layoutSections(state, true);
     };
     const commit = (text = input.value.trim()) => {
-        const selected = choices.find(choice => choice.toLowerCase() === text.toLowerCase());
+        const selected = (typeof choices === "function" ? choices() : choices).find(choice => choice.toLowerCase() === text.toLowerCase());
         input.value = selected || value(state.node, name);
         close();
         if (selected && selected !== value(state.node, name)) apply();
     };
     const show = (query = "") => {
         if (input.disabled) return;
-        matches = choices.filter(choice => display(choice).toLowerCase().includes(query.toLowerCase().trim()));
+        matches = (typeof choices === "function" ? choices() : choices).filter(choice => display(choice).toLowerCase().includes(query.toLowerCase().trim()));
         active = -1;
         input.removeAttribute("aria-activedescendant");
         list.replaceChildren();
@@ -1003,7 +1055,7 @@ function installChoicePicker(state, name, input, choices, display, apply) {
         }
     };
     list.onwheel = event => event.stopPropagation();
-    return { close };
+    return { close, refresh() { if (!dropdown.hidden) show(); } };
 }
 
 function addModelHeading(state) {
@@ -1020,7 +1072,7 @@ function addModelHeading(state) {
     let requestedProvider, removedNode = false;
     const updateCount = () => {
         const { provider } = modelSelection(state);
-        const count = counts.get(provider) ?? state.models[provider]?.length;
+        const count = counts.get(provider) ?? state.models[catalogKey(state)]?.length;
         countText.textContent = `Models: ${count == null ? "—" : count.toLocaleString()}`;
     };
     state.updateCatalogCount = (provider, count) => {
@@ -1039,17 +1091,19 @@ function addModelHeading(state) {
     };
     state.updateModelHeading = () => {
         const { provider, model } = modelSelection(state);
+        if (document.activeElement !== state.router) state.router.value = routingMode(state);
+        if (document.activeElement !== state.host) state.host.value = hostingProvider(state);
         const previousProvider = state.provider.value;
         state.provider.value = provider || "";
         const envName = value(state.node, "api_key_env");
         let envChanged = false;
-        if (connected(state.node, "provider") && defaults[provider] && !connected(state.node, "api_key_env") && Object.values(defaults).includes(envName) && envName !== defaults[provider]) {
+        if ((connected(state.node, "provider") || connected(state.node, "router")) && defaults[provider] && !connected(state.node, "api_key_env") && Object.values(defaults).includes(envName) && envName !== defaults[provider]) {
             setValue(state.node, "api_key_env", defaults[provider]);
             state.env.value = defaults[provider];
             envChanged = true;
         }
         if (envChanged || previousProvider !== state.provider.value) void state.refreshCredentialStatus();
-        providerText.textContent = provider || "Select a provider";
+        providerText.textContent = provider === "OpenRouter" ? `OpenRouter / ${state.hostName?.(hostingProvider(state)) || hostingProvider(state)}` : provider || "Select a provider";
         updateCount();
         text.textContent = connected(state.node, "model_name") ? model ? `${model} (last execution)` : "Awaiting connected model" : String(model || "Select a model");
         if (document.activeElement !== state.model) state.model.value = model || "";
@@ -1091,6 +1145,12 @@ function setup(node, nodeData) {
         state.bindings.set(name, input);
         return input;
     }
+    state.router = document.createElement("input"); state.router.className = "rm050-wide"; state.router.autocomplete = "off";
+    state.router.setAttribute("aria-label", "router");
+    label("router", state.router); state.bindings.set("router", state.router);
+    state.host = document.createElement("input"); state.host.className = "rm050-wide"; state.host.autocomplete = "off";
+    state.host.setAttribute("aria-label", "hosting_provider");
+    label("provider", state.host); state.bindings.set("hosting_provider", state.host);
     state.provider = document.createElement("input");
     state.provider.type = "text"; state.provider.className = "rm050-wide";
     state.provider.autocomplete = "off"; state.provider.spellcheck = false;
@@ -1159,7 +1219,7 @@ function setup(node, nodeData) {
         setKey.setAttribute("aria-label", status === "ready" ? "API key available" : status === "missing" ? "API key needed" : "API key status unknown");
     };
     const refreshCredentialStatus = async () => {
-        const provider = value(node, "provider");
+        const provider = modelSelection(state).provider;
         const credentialSource = value(node, "credential_source");
         const revision = state.credentialRevision = (state.credentialRevision || 0) + 1;
         setKeyStatus("unknown");
@@ -1196,7 +1256,7 @@ function setup(node, nodeData) {
     };
     state.applyCredentialSource = () => { setValue(node, "credential_source", state.mode.value); updateMode(); };
     setKey.onclick = async () => {
-        const provider = value(node, "provider");
+        const provider = modelSelection(state).provider;
         setKey.disabled = true;
         try {
             const old = state.sessions[provider];
@@ -1239,7 +1299,7 @@ function setup(node, nodeData) {
         const control = children.at(-1);
         const name = [...state.bindings].find(([, el]) => el === control)?.[0] || displayRows.get(control);
         const multiline = control.tagName === "TEXTAREA";
-        addRow(state, name, children, ["provider", "credential_source"].includes(name) ? () => 58 + (state[`${name}DropdownHeight`] || 0) : name === "model_name" ? () => 58 + (state.modelDropdownHeight || 0) : multiline ? 108 : control === keyRow ? 64 : name === "provider_status" ? 28 : child.classList.contains("rm050-note") ? 36 : 58, multiline);
+        addRow(state, name, children, ["router", "hosting_provider", "provider", "credential_source"].includes(name) ? () => 58 + (state[`${name}DropdownHeight`] || 0) : name === "model_name" ? () => 58 + (state.modelDropdownHeight || 0) : multiline ? 108 : control === keyRow ? 64 : name === "provider_status" ? 28 : child.classList.contains("rm050-note") ? 36 : 58, multiline);
     }
     state.console = document.createElement("input");
     state.console.type = "checkbox";
@@ -1276,13 +1336,84 @@ function setup(node, nodeData) {
     addBudgets(state);
     addModelHeading(state);
     installModelPicker(state);
-    state.providerPicker = installChoicePicker(state, "provider", state.provider, Object.keys(defaults), p => `${p} — ${providerSubtitles[p]}`, () => state.applyProvider());
+    state.providerPicker = installChoicePicker(state, "provider", state.provider, Object.keys(defaults).filter(p => p !== "OpenRouter"), p => `${p} — ${providerSubtitles[p]}`, () => state.applyProvider());
     state.modePicker = installChoicePicker(state, "credential_source", state.mode, ["Environment variable", "Masked session key"], mode => mode, () => state.applyCredentialSource());
+    state.allHosts = [];
+    state.hostName = id => id === "Auto" ? "Auto" : state.allHosts.find(p => p.id === id)?.name || state.allCaps?.endpoints.find(ep => ep.id === id)?.name || id;
+    state.hostChoices = () => {
+        const endpoints = state.allCaps?.provider === "OpenRouter" ? state.allCaps.endpoints : null;
+        const choices = endpoints ? endpoints.map(ep => ep.id) : state.allHosts.map(p => p.id);
+        const current = hostingProvider(state);
+        if (endpoints?.some(ep => hostMatches(ep.id, current)) && current !== "Auto") choices.push(current);
+        return [...new Set(["Auto", ...choices])];
+    };
+    const hostLabel = id => {
+        if (id === "Auto") return "Auto — OpenRouter chooses";
+        const endpoints = state.allCaps?.endpoints.filter(ep => hostMatches(ep.id, id)) || [];
+        const precisions = [...new Set(endpoints.map(ep => ep.quantization?.trim().toLowerCase() || "unknown"))];
+        const precision = precisions.length ? precisions.map(q => q === "unknown" ? "Precision unknown" : q.toUpperCase()).join(" / ") : "Precision unknown";
+        return `${state.hostName(id)} (${id}) — ${precision}`;
+    };
+    state.hostPicker = installChoicePicker(state, "hosting_provider", state.host, state.hostChoices, hostLabel, () => void state.applyHost());
+    state.host.addEventListener("focus", async () => {
+        if (state.allHosts.length || state.loadingHosts) return;
+        state.loadingHosts = true;
+        try {
+            const response = await call("routing_catalog", { provider: "OpenRouter" }, state);
+            state.allHosts = response.providers;
+            state.hostPicker.refresh();
+        } catch (error) { note(state, error.message, true); }
+        finally { state.loadingHosts = false; }
+    });
+    state.routerPicker = installChoicePicker(state, "router", state.router, ["OpenRouter", "Direct"], name => name, () => {
+        const router = state.router.value;
+        ++state.revision;
+        setValue(node, "router", router);
+        if (router === "OpenRouter") setValue(node, "provider", "OpenRouter");
+        else if (value(node, "provider") === "OpenRouter") setValue(node, "provider", "OpenAI");
+        setValue(node, "api_key_env", defaults[value(node, "provider")]);
+        setValue(node, "hosting_provider", "Auto"); setValue(node, "endpoint", "Auto");
+        setValue(node, "model_name", ""); setValue(node, "parameters_json", "{}");
+        state.caps = state.allCaps = state.runtimeModel = null;
+        state.controls.replaceChildren(); password.value = "";
+        state.sync();
+    });
+    state.applyHost = async () => {
+        const host = state.host.value;
+        setValue(node, "hosting_provider", host);
+        setValue(node, "endpoint", "Auto");
+        setValue(node, "parameters_json", "{}");
+        state.modelPicker.close();
+        state.caps = selectedCapabilities(state.allCaps, host);
+        if (state.caps) renderControls(state);
+        state.updateModelHeading();
+        const context = state.statusContext;
+        if (host !== "Auto") {
+            try {
+                const response = await call("routing_catalog", { provider: "OpenRouter", host }, state);
+                if (context !== state.statusContext) return;
+                state.models[catalogKey(state)] = response.models;
+                const model = modelSelection(state).model;
+                if (model && !response.models.some(m => m.id === model) && !connected(node, "model_name")) {
+                    setValue(node, "model_name", "");
+                    state.caps = state.allCaps = null;
+                    state.controls.replaceChildren();
+                    mountParameterRows(state);
+                }
+                state.updateCatalogCount("OpenRouter", response.models.length);
+            } catch (error) { note(state, error.message, true); }
+        }
+        state.modelPicker.sync();
+        if (modelSelection(state).model) void loadCapabilities(state);
+        else layoutSections(state, true);
+    };
     installExecutionWidgets(state);
     state.sync = () => {
         state.validators.clear();
         state.invalid.clear();
-        setValue(node, "endpoint", "Auto");
+        state.router.value = routingMode(state);
+        state.host.value = hostingProvider(state);
+        state.routerPicker.close(); state.hostPicker.close();
         state.updateModelHeading?.();
         state.provider.value = value(node, "provider");
         state.providerPicker.close();
@@ -1308,10 +1439,11 @@ function setup(node, nodeData) {
     };
     state.applyProvider = () => {
         ++state.revision;
+        setValue(node, "router", "Direct");
         setValue(node, "provider", state.provider.value);
         setValue(node, "api_key_env", defaults[state.provider.value]);
         setValue(node, "model_name", ""); setValue(node, "endpoint", "Auto"); setValue(node, "parameters_json", "{}");
-        state.caps = null; state.controls.replaceChildren(); state.validators.clear();
+        state.caps = state.allCaps = null; state.controls.replaceChildren(); state.validators.clear();
         mountParameterRows(state);
         state.invalid.clear(); state.capInfo.textContent = "Context: —  |  Output limit: —";
         password.value = ""; state.sync(); note(state, "Type or select a model in Model Name.");
@@ -1350,8 +1482,8 @@ function installExecutionWidgets(state) {
         if (!forQueue || app.processingQueue !== true) return "";
         const source = connectedStaticString(node, "credential_source") ?? value(node, "credential_source");
         if (source !== "Masked session key") return "";
-        const provider = connectedStaticString(node, "provider") ?? value(node, "provider");
-        if (connected(node, "provider") && !connectedStaticString(node, "provider")) {
+        const provider = modelSelection(state).provider;
+        if (connected(node, "provider") && !connectedStaticString(node, "provider") && routingMode(state) !== "OpenRouter") {
             throw new Error("RM-LLM: use Environment variable for a provider determined during execution.");
         }
         const session = state.sessions[provider];
@@ -1395,7 +1527,7 @@ function observeGraph(graph) {
             syncConnectedControls(state);
             state.updateModelHeading();
             layoutSections(state, true);
-            if (["provider", "model_name"].includes(name)) {
+            if (["router", "hosting_provider", "provider", "model_name"].includes(name)) {
                 state.runtimeModel = null;
                 void loadCapabilities(state);
             }
@@ -1536,7 +1668,7 @@ app.registerExtension({
                 state.executionPrompt = detail?.prompt_id;
                 state.beginProviderRequest?.("generation");
             }
-            if (state && (connected(node, "model_name") || connected(node, "provider"))) {
+            if (state && ["model_name", "provider", "router", "hosting_provider"].some(name => connected(node, name))) {
                 state.runtimeModel = null;
                 void loadCapabilities(state);
             }
