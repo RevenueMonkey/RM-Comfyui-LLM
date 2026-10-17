@@ -18,6 +18,7 @@ from . import providers as adapters
 from .provider_transport import complete as provider_complete
 from .template_options import FIELDS as TEMPLATE_FIELDS, PREFIX as TEMPLATE_PREFIX
 from .budgets import BUDGET_NAMES, apply_budgets, check_input, usage_report
+from .routing import resolve_route, endpoint_capabilities
 
 MEDIA_LIMIT = 48 * 1024 * 1024
 RESERVED_INPUTS = {"provider", "model", "models", "messages", "stream", "stream_options", "route", "model_name", "endpoint", "api_key_env", "credential_source", "system_prompt", "user_prompt", "parameters_json", "timeout_seconds", "image", "video", "key_ticket", "console_output"}
@@ -303,6 +304,7 @@ class ChatCompletionNode:
         if console_output:
             logging.info("[RM-LLM] Checking %s model capabilities.", provider)
         caps = await interruptible(model_capabilities(provider, model_name, key=key))
+        caps = endpoint_capabilities(caps, endpoint)
         parameters = merge_connected_parameters(parameters, connected_parameters, caps)
         parameters, budget_plan = apply_budgets(provider, model_name, caps, parameters, input_budget, thinking_budget, output_budget, endpoint=endpoint)
         body = build_body(provider, model_name, endpoint, caps, system_prompt, user_prompt, parameters, image, video)
@@ -358,11 +360,17 @@ class ConversationNode(ChatCompletionNode):
         for name in BUDGET_NAMES:
             inputs["optional"][name] = ("INT", {"default": 0, "min": 0, "max": 2**31 - 1,
                 "tooltip": "Tokens; 0 keeps existing/default behaviour. Positive budgets take precedence over corresponding token settings. Thinking and output may share one API limit."})
+        inputs["optional"]["router"] = ("STRING", {"default": "", "tooltip": "Direct or OpenRouter. Blank preserves routing in existing workflows."})
+        inputs["optional"]["hosting_provider"] = ("STRING", {"default": "Auto", "tooltip": "OpenRouter hosting-provider slug or Auto; ignored for Direct."})
         inputs["hidden"] = {"dynprompt": "DYNPROMPT"}
         return inputs
 
-    async def generate(self, parameters_json, creativity=None, agent_request=None, dynprompt=None, input_budget=0, thinking_budget=0, output_budget=0, **kwargs):
-        model_info = {"provider": kwargs.get("provider"), "model": kwargs.get("model_name")}
+    async def generate(self, parameters_json, creativity=None, agent_request=None, dynprompt=None, input_budget=0, thinking_budget=0, output_budget=0, router="", hosting_provider="Auto", **kwargs):
+        original_provider = kwargs.get("provider")
+        kwargs["provider"], kwargs["endpoint"] = resolve_route(router, original_provider, hosting_provider, kwargs.get("endpoint", "Auto"))
+        if original_provider != kwargs["provider"] and kwargs.get("api_key_env") in {provider_info(p)[1] for p in ("OpenRouter", "Featherless", "LithosAI", *adapters.PROVIDERS)}:
+            kwargs["api_key_env"] = provider_info(kwargs["provider"])[1]
+        model_info = {"provider": kwargs.get("provider"), "model": kwargs.get("model_name"), "router": router or ("OpenRouter" if kwargs["provider"] == "OpenRouter" else "Direct"), "hosting_provider": kwargs["endpoint"]}
         context = get_executing_context()
         if context is not None and dynprompt is not None:
             inputs = dynprompt.get_node(context.node_id)["inputs"]
@@ -402,6 +410,7 @@ class ConversationNode(ChatCompletionNode):
                 raise RMError("Agent settings must be an object and the conversation must be an array.")
             parameters.setdefault("reasoning", {"effort": parameters.get("reasoning_effort", "medium")})
             caps = await interruptible(model_capabilities(kwargs["provider"], kwargs["model_name"]))
+            caps = endpoint_capabilities(caps, kwargs["endpoint"])
             parameters, budget_plan = apply_budgets(kwargs["provider"], kwargs["model_name"], caps, parameters, input_budget, thinking_budget, output_budget, responses=True, endpoint=kwargs["endpoint"])
             if "max_tokens" in parameters and "max_output_tokens" in parameters:
                 raise RMError("Set only one output token limit.")
@@ -441,7 +450,7 @@ class ConversationNode(ChatCompletionNode):
 
 
 class RMLLM050(ConversationNode):
-    """RM-LLM 0.6.0; compatible IDs with provider request status."""
+    """RM-LLM 0.7.0; compatible IDs with router and hosting-provider selection."""
 
     DESCRIPTION = (
         "Twelve LLM API providers with model discovery, "

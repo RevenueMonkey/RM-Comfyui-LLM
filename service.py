@@ -700,7 +700,7 @@ async def model_capabilities(provider, model, refresh=False, key=""):
             if not tag:
                 continue
             params = list(endpoint.get("supported_parameters") or [])
-            endpoints.append({"id": tag, "name": endpoint.get("provider_name", tag), "parameters": params, "context_length": endpoint.get("context_length"), "max_tokens": endpoint.get("max_completion_tokens"), "pricing": endpoint.get("pricing"), "status": endpoint.get("status")})
+            endpoints.append({"id": tag, "name": endpoint.get("provider_name", tag), "quantization": endpoint.get("quantization") or "unknown", "parameters": params, "context_length": endpoint.get("context_length"), "max_tokens": endpoint.get("max_completion_tokens"), "pricing": endpoint.get("pricing"), "status": endpoint.get("status")})
         params = sorted({p for ep in endpoints for p in ep["parameters"]})
         if not endpoints:
             raise RMError("This model has no live chat endpoints. Refresh or select another model.")
@@ -760,6 +760,36 @@ def check_local_request(request, secret=False):
         raise RMError("Enter keys using localhost or HTTPS. Environment variables are available for other connections.")
 
 
+ROUTING_CACHE = {}
+ROUTING_LOCK = asyncio.Lock()
+
+
+async def routing_catalog(host="Auto"):
+    """Public discovery only, bounded TTL cache; never calls inference."""
+    async with ROUTING_LOCK:
+        cached = ROUTING_CACHE.get(host)
+        if cached and time.monotonic() - cached[0] < 300:
+            return copy.deepcopy(cached[1])
+        base = PROVIDERS["OpenRouter"][0]
+        if host == "Auto":
+            data = (await request_json(base + "/providers"))["data"]
+            result = {"providers": [{"id": p["slug"], "name": p["name"]} for p in data]}
+        else:
+            providers = ROUTING_CACHE.get("Auto")
+            if not providers or time.monotonic() - providers[0] >= 300:
+                data = (await request_json(base + "/providers"))["data"]
+                providers = (time.monotonic(), {"providers": [{"id": p["slug"], "name": p["name"]} for p in data]})
+                ROUTING_CACHE["Auto"] = providers
+            provider = next((p for p in providers[1]["providers"] if p["id"] == host.split("/")[0]), None)
+            if not provider:
+                raise RMError("Unknown OpenRouter hosting provider. Reload the provider list.")
+            data = (await request_json(base + "/models?providers=" + quote(provider["name"], safe="")))["data"]
+            result = {"models": [{"id": m["id"], "name": m.get("name", m["id"])} for m in data
+                                 if "text" in m.get("architecture", {}).get("output_modalities", ["text"])]}
+        ROUTING_CACHE[host] = (time.monotonic(), result)
+        return copy.deepcopy(result)
+
+
 async def api_request(request):
     try:
         check_local_request(request, secret=request.match_info["action"] in {"key", "ticket", "set_env"})
@@ -769,7 +799,9 @@ async def api_request(request):
         provider = data.get("provider", "OpenRouter")
         provider_info(provider)
         action = request.match_info["action"]
-        if action == "key":
+        if action == "routing_catalog":
+            result = await routing_catalog(data.get("host") or "Auto")
+        elif action == "key":
             if data.get("clear"):
                 with LOCK:
                     SESSIONS.pop(data.get("session", ""), None)

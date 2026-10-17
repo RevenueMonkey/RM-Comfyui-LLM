@@ -43,3 +43,12 @@ The input/text estimator is an RM-LLM heuristic (UTF-8 bytes divided by four),
 not a model tokenizer. Media are excluded from the preflight count. Usage
 normalization distinguishes reported zeros from missing/hidden reasoning.
 Run `python -B -m unittest discover -s tests` for provider and budget contracts.
+
+## Router/hosting discovery (0.7.0, reviewed 2026-10-17)
+
+- https://openrouter.ai/docs/api/api-reference/providers/list-all-providers ? provider names and routing slugs.
+- https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties ? `providers` filters by hosting-provider name, not model author.
+- https://openrouter.ai/docs/api/api-reference/endpoints/list-all-endpoints-for-a-model ? model-specific host endpoints, controls and limits.
+- https://openrouter.ai/docs/guides/routing/provider-selection ? `only`, `allow_fallbacks`, base-slug matching and endpoint variants.
+
+Read-only live checks: provider catalogue returned 112 entries; GPT-4o endpoints returned Azure and OpenAI; OpenAI- and Azure-filtered model catalogues differed. No inference calls or API secrets were used. These are catalogue observations, not guarantees of account access or capacity.
