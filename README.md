@@ -32,7 +32,7 @@ These are supported integrations, not a measured ComfyUI popularity ranking. Mod
 - **Model-specific controls:** supported sampling settings, Thinking/Reasoning and known chat-template options.
 - **Creativity slider:** adjusts temperature and top_p together, with independent settings in Advanced.
 - **Images and video:** connect reference media where the provider and model support it. Unsupported media connections become N/A and are omitted from the request.
-- **Native ComfyUI integration:** connect prompts and settings from other nodes, with collapsible Model, Simple and Advanced sections, stable sockets and a built-in response preview.
+- **Native ComfyUI integration:** connect prompts and settings from other nodes, with collapsible Model, Simple and Advanced sections, stable sockets and a built-in response preview. The layout also works with the Easy-Use UI.
 - **Live console output:** stream generated text and returned reasoning as they arrive.
 - **Keys kept out of workflows:** masked key entry, environment-variable credentials and temporary session keys.
 - **Separate outputs:** generated text, returned reasoning and the full provider response, including usage when supplied.
@@ -99,7 +99,13 @@ The first dropdown is **router**, with **OpenRouter** and **Direct**. All select
 - Routed requests use your OpenRouter key, including when OpenAI, Azure or another company is selected as the host.
 - Compatible model/host choices are retained. Selecting a model incompatible with an unconnected host resets the host to Auto; choosing a host whose catalogue excludes the current unconnected model clears the model. Connected values are never silently replaced: incompatible connected selections report an error.
 
-For wired/API workflows, `router` accepts `OpenRouter` or `Direct`; `hosting_provider` accepts an OpenRouter routing slug or `Auto`. The existing `provider` input remains the API-service field for compatibility and is used for Direct. Blank `router` preserves the old behaviour, including `provider = OpenRouter`. Old node IDs, input positions and workflow connections are retained. Provider-first discovery is cached for five minutes and does not run inference.
+For wired/API workflows, `router` accepts `OpenRouter` or `Direct`. The single `provider` selector/socket accepts an OpenRouter host routing slug (or `Auto`) when routed, or a direct API service name when Direct. The old `hosting_provider` argument remains accepted for backward compatibility but has no new UI control. Existing node IDs remain unchanged. Provider-first discovery is cached for five minutes and does not run inference.
+
+Unsupported controls and media are omitted when the selected model or provider cannot use them. Connections remain intact; unsupported connected controls show N/A. Invalid values for supported controls and authentication/model availability failures still report errors.
+
+## Connected control values
+
+Wired text, number, dropdown and toggle controls are read-only and show the value received when RM-LLM runs. Pending inputs show Connected; received values are marked last run. Disconnecting restores the manual setting. These display updates do not overwrite saved widget values or expose API keys/key tickets. Image, video and agent objects are not rendered as scalar controls.
 
 ## Provider differences
 
@@ -141,9 +147,9 @@ The **Set** button keeps its existing key-storage colours. A stored key does not
 
 See [GitHub Releases](https://github.com/RevenueMonkey/RM-Comfyui-LLM/releases) for downloads and the [dated changelog](CHANGELOG.md) for version details. Changelog dates record changes, not Registry publication dates.
 
-**The internal node ID is not the installed version.** Releases from 0.5.0 onward retain `RM_LLM_050` so saved workflows and connections keep working. Seeing this ID in a workflow or error report is normal for 0.7.0; it does not mean 0.5.0 is installed. Check the node display name and `pyproject.toml` for the release version. The internal agent IDs, routes and cache names also remain stable. Older workflows using `RM_LLM_040`, `RM_LLM_V3` or `RM_LLM_V2` are not automatically converted. Keep the older package if those workflows still need it; the new node has separate IDs and routes so both can coexist. For a separate installation, use a different folder name when cloning.
+**The internal node ID is not the installed version.** Releases from 0.5.0 onward retain `RM_LLM_050` so saved workflows and connections keep working. Seeing this ID in a workflow or error report is normal for 0.7.1; it does not mean 0.5.0 is installed. Check the node display name and `pyproject.toml` for the release version. The internal agent IDs, routes and cache names also remain stable. Older workflows using `RM_LLM_040`, `RM_LLM_V3` or `RM_LLM_V2` are not automatically converted. Keep the older package if those workflows still need it; the new node has separate IDs and routes so both can coexist. For a separate installation, use a different folder name when cloning.
 
-The current node and socket dragging have been user-tested on Windows. Provider adapters have offline contract tests; live testing of every provider/account combination is not complete. The node uses standard ComfyUI dependencies and native extension hooks. Linux/macOS runtime verification is still incomplete; the included PowerShell launcher is optional and Windows-specific.
+The current node, socket dragging and Easy-Use section folding have been user-tested on Windows. Provider adapters have offline contract tests; live testing of every provider/account combination is not complete. The node uses standard ComfyUI dependencies and native extension hooks. Linux/macOS runtime verification is still incomplete; the included PowerShell launcher is optional and Windows-specific.
 
 ## Support and license
 

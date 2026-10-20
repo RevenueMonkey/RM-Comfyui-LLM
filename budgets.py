@@ -76,6 +76,8 @@ def thinking_mode(provider, model, caps):
 
 
 def apply_budgets(provider, model, caps, parameters, input_budget=0, thinking_budget=0, output_budget=0, *, responses=False, endpoint="Auto"):
+    if not responses and not {"max_tokens", "max_completion_tokens"}.intersection(caps.get("parameters", {})):
+        output_budget = 0  # No supported API field to enforce this control.
     validate_budgets((input_budget, thinking_budget, output_budget))
     result = copy.deepcopy(parameters)
     for name in ("reasoning", "thinking", "thinking_config", "chat_template_kwargs"):

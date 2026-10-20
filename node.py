@@ -19,6 +19,7 @@ from .provider_transport import complete as provider_complete
 from .template_options import FIELDS as TEMPLATE_FIELDS, PREFIX as TEMPLATE_PREFIX
 from .budgets import BUDGET_NAMES, apply_budgets, check_input, usage_report
 from .routing import resolve_route, endpoint_capabilities
+from .connected_values import connected_values
 
 MEDIA_LIMIT = 48 * 1024 * 1024
 RESERVED_INPUTS = {"provider", "model", "models", "messages", "stream", "stream_options", "route", "model_name", "endpoint", "api_key_env", "credential_source", "system_prompt", "user_prompt", "parameters_json", "timeout_seconds", "image", "video", "key_ticket", "console_output"}
@@ -44,15 +45,32 @@ def parameter_sockets():
     return sockets
 
 
+def supported_parameters(parameters, caps, allowed=None):
+    if not isinstance(parameters, dict):
+        raise RMError("Model settings must be a JSON object.")
+    allowed = set(caps["parameters"] if allowed is None else allowed) - {"structured_outputs"}
+    omitted = set(parameters) - allowed
+    if omitted:
+        logging.info("[RM-LLM] Ignoring unsupported settings: %s", ", ".join(sorted(omitted)))
+    result = {name: value for name, value in parameters.items() if name in allowed}
+    if isinstance(result.get("chat_template_kwargs"), dict):
+        result["chat_template_kwargs"] = {name: value for name, value in result["chat_template_kwargs"].items()
+                                          if name in caps.get("template_parameters", {})}
+        if not result["chat_template_kwargs"]:
+            result.pop("chat_template_kwargs")
+    return result
+
+
 def merge_connected_parameters(parameters, connected, caps):
     if not isinstance(parameters, dict):
         raise RMError("Model settings must be a JSON object.")
-    parameters = dict(parameters)
+    parameters = supported_parameters(parameters, caps)
     for name, value in connected.items():
         if name.startswith(TEMPLATE_PREFIX) or name == "reasoning.enabled":
             continue
         if name not in caps["parameters"]:
-            raise RMError(f"Connected setting {name} is unsupported by the selected model. Disconnect it or select a compatible model.")
+            logging.info("[RM-LLM] Ignoring unsupported connected setting: %s", name)
+            continue
         schema = caps["parameters"][name]
         kinds = schema.get("type", [])
         kinds = [kinds] if isinstance(kinds, str) else kinds
@@ -64,6 +82,7 @@ def merge_connected_parameters(parameters, connected, caps):
                 raise RMError(f"Connected setting {name} requires valid JSON text.") from None
         parameters[name] = value
     nested = {name[len(TEMPLATE_PREFIX):]: value for name, value in connected.items() if name.startswith(TEMPLATE_PREFIX)}
+    nested = {name: value for name, value in nested.items() if "chat_template_kwargs" in caps["parameters"] and name in caps.get("template_parameters", {})}
     if nested:
         options = parameters.get("chat_template_kwargs", {})
         if not isinstance(options, dict):
@@ -77,9 +96,7 @@ def merge_connected_parameters(parameters, connected, caps):
                 options.pop("do_reasoning", None)
             options[name] = value
         parameters["chat_template_kwargs"] = options
-    if "reasoning.enabled" in connected:
-        if "reasoning" not in caps["parameters"]:
-            raise RMError("Thinking/Reasoning is unsupported by the selected model. Disconnect its input or select a compatible model.")
+    if "reasoning.enabled" in connected and "reasoning" in caps["parameters"]:
         options = parameters.get("reasoning", {})
         if not isinstance(options, dict):
             raise RMError("reasoning must be a JSON object.")
@@ -154,8 +171,7 @@ def validate_parameters(parameters, caps, endpoint):
     if endpoint != "Auto" and selected is None:
         raise RMError("The selected hosting endpoint is no longer available. Refresh and select an endpoint.")
     allowed = set(selected["parameters"] if selected else caps["parameters"])
-    if set(parameters) - allowed or "structured_outputs" in parameters:
-        raise RMError("One or more enabled settings are unsupported by this model/endpoint. Refresh capabilities and review settings.")
+    parameters = supported_parameters(parameters, caps, allowed)
     for name, value in parameters.items():
         schema = caps["parameters"].get(name, {})
         validate_value(name, value, schema)
@@ -366,6 +382,10 @@ class ConversationNode(ChatCompletionNode):
         return inputs
 
     async def generate(self, parameters_json, creativity=None, agent_request=None, dynprompt=None, input_budget=0, thinking_budget=0, output_budget=0, router="", hosting_provider="Auto", **kwargs):
+        received_values = dict(kwargs, parameters_json=parameters_json, creativity=creativity,
+                               router=router, hosting_provider=hosting_provider,
+                               input_budget=input_budget, thinking_budget=thinking_budget, output_budget=output_budget)
+        display_values = {}
         original_provider = kwargs.get("provider")
         kwargs["provider"], kwargs["endpoint"] = resolve_route(router, original_provider, hosting_provider, kwargs.get("endpoint", "Auto"))
         if original_provider != kwargs["provider"] and kwargs.get("api_key_env") in {provider_info(p)[1] for p in ("OpenRouter", "Featherless", "LithosAI", *adapters.PROVIDERS)}:
@@ -374,6 +394,7 @@ class ConversationNode(ChatCompletionNode):
         context = get_executing_context()
         if context is not None and dynprompt is not None:
             inputs = dynprompt.get_node(context.node_id)["inputs"]
+            display_values = connected_values(inputs, received_values)
             defaults = {provider_info(provider)[1] for provider in ("OpenRouter", "Featherless", "LithosAI", *adapters.PROVIDERS)}
             # A runtime provider connection owns its default key selection.
             # Explicitly connected/custom environment names keep their meaning.
@@ -381,10 +402,8 @@ class ConversationNode(ChatCompletionNode):
                 kwargs["api_key_env"] = provider_info(kwargs["provider"])[1]
         if context is not None:
             display_id = dynprompt.get_display_node_id(context.node_id) if dynprompt is not None else context.node_id
-            PromptServer.instance.send_sync("rm050-llm-model", {"node": display_id, "model_info": model_info}, PromptServer.instance.client_id)
-        if creativity is not None:
-            if kwargs.get("provider") == "Anthropic":
-                raise RMError("Anthropic does not support paired Creativity sampling. Use temperature or top_p in Advanced.")
+            PromptServer.instance.send_sync("rm050-llm-model", {"node": display_id, "model_info": model_info, "input_values": display_values}, PromptServer.instance.client_id)
+        if creativity is not None and kwargs.get("provider") != "Anthropic":
             try:
                 parameters = json.loads(parameters_json)
             except json.JSONDecodeError:
@@ -393,6 +412,9 @@ class ConversationNode(ChatCompletionNode):
                 raise RMError("Model settings must be a JSON object.")
             parameters.update(creativity_to_sampling(creativity))
             parameters_json = json.dumps(parameters)
+        if agent_request is not None and kwargs["provider"] != "OpenRouter":
+            logging.info("[RM-LLM] Ignoring agent_request: unsupported by this provider.")
+            agent_request = None
         if agent_request is not None:
             # Import lazily: agent.py uses helpers from this module, so a
             # module-level import would prevent RM-LLM from loading at startup.
@@ -439,18 +461,19 @@ class ConversationNode(ChatCompletionNode):
             result, = await AgentRequest().request(profile, request, image=kwargs.get("image"))
             text = result.get("text", "")
             report = text or json.dumps(result.get("calls") or {"status": result["status"], "message": result.get("message", "")}, ensure_ascii=False)
-            ui = {"text": [report], "rm_llm_model": [model_info]}
+            ui = {"text": [report], "rm_llm_model": [model_info], "rm_llm_inputs": [display_values]}
             if result.get("status") in {"complete", "tools"}:
                 ui["rm_llm_usage"] = [usage_report(kwargs["provider"], result, budget_plan, text)]
             return {"ui": ui, "result": (text, "", json.dumps(result, ensure_ascii=False))}
         result = await super().generate(parameters_json=parameters_json, input_budget=input_budget, thinking_budget=thinking_budget, output_budget=output_budget, **kwargs)
+        result["ui"]["rm_llm_inputs"] = [display_values]
         if model_info["provider"] and model_info["model"]:
             result["ui"]["rm_llm_model"] = [model_info]
         return result
 
 
 class RMLLM050(ConversationNode):
-    """RM-LLM 0.7.0; compatible IDs with router and hosting-provider selection."""
+    """RM-LLM 0.7.1; compatible IDs with router and hosting-provider selection."""
 
     DESCRIPTION = (
         "Twelve LLM API providers with model discovery, "

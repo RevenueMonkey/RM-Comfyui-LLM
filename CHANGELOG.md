@@ -2,6 +2,18 @@
 
 Dates identify the recorded changes, not Comfy Registry publication timestamps.
 
+## [0.7.1] - 2026-10-20
+
+- Omit unsupported retained/connected model settings, template options and unsupported optional provider features; retain connections and mark unsupported controls N/A.
+
+- Use one provider selector/socket for Direct services and OpenRouter hosts, with precision annotations retained.
+
+- Display values received through connected scalar inputs in their read-only controls, including text, numbers, dropdowns and toggles.
+- Mark pending connections and last-run values; match updates to the source socket and restore manual settings on disconnect.
+- Keep display values separate from saved widget settings; exclude credentials, media and agent objects from display events.
+- Make the collapsible layout compatible with the Easy-Use UI: folded sections remove only disconnected ghost sockets using native ComfyUI input methods, while connected sockets and wires stay attached. Restore available sockets on expansion.
+- User-verified the section folding and socket behaviour on Windows; other platforms remain unverified.
+
 ## [0.7.0] - 2026-10-17
 
 - Show API-reported precision beside OpenRouter hosts, including Precision unknown when undisclosed.

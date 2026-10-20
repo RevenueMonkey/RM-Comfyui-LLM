@@ -24,6 +24,13 @@ class Routing(unittest.TestCase):
         for router, provider in [("Direct", "OpenRouter"), ("bad", "OpenAI")]:
             with self.assertRaises(s.RMError): resolve_route(router, provider)
 
+    def test_unified_provider(self):
+        self.assertEqual(resolve_route("OpenRouter", "moonshotai/mxfp4"), ("OpenRouter", "moonshotai/mxfp4"))
+        self.assertEqual(resolve_route("OpenRouter", "Auto"), ("OpenRouter", "Auto"))
+        self.assertEqual(resolve_route("OpenRouter", "OpenRouter"), ("OpenRouter", "Auto"))
+        self.assertEqual(resolve_route("Direct", "Featherless"), ("Featherless", "Auto"))
+        self.assertEqual(resolve_route("OpenRouter", "OpenRouter", "azure"), ("OpenRouter", "azure"))
+
     def test_selected_host_limits_and_controls(self):
         caps = capabilities(); original = copy.deepcopy(caps)
         selected = endpoint_capabilities(caps, "azure")
@@ -38,8 +45,26 @@ class Routing(unittest.TestCase):
         caps = endpoint_capabilities(capabilities(), "azure")
         body = n.build_body("OpenRouter", "test/model", "azure", caps, "system", "user", {"temperature": .5})
         self.assertEqual(body["provider"], {"require_parameters": True, "only": ["azure"], "allow_fallbacks": False})
+        self.assertNotIn("top_p", n.build_body("OpenRouter", "test/model", "azure", caps, "system", "user", {"top_p": .9}))
+
+    def test_unsupported_connections_are_ignored_before_parsing(self):
+        caps = endpoint_capabilities(capabilities(), "azure")
+        manual = {"temperature": .4, "top_p": .9, "reasoning": "not valid JSON"}
+        wired = {"temperature": .6, "top_k": "not JSON", "reasoning.enabled": False,
+                 "chat_template_kwargs.enable_thinking": True}
+        result = n.merge_connected_parameters(manual, wired, caps)
+        self.assertEqual(result, {"temperature": .6})
+        self.assertEqual(manual["top_p"], .9)
         with self.assertRaises(s.RMError):
-            n.build_body("OpenRouter", "test/model", "azure", caps, "system", "user", {"top_p": .9})
+            n.validate_parameters({"temperature": "bad"}, caps, "azure")
+
+    def test_known_template_fields_only(self):
+        caps = capabilities()
+        caps["parameters"]["chat_template_kwargs"] = {"type": "object"}
+        caps["template_parameters"] = {"enable_thinking": {"type": "boolean"}}
+        result = n.merge_connected_parameters({"chat_template_kwargs": {"obsolete": True}},
+            {"chat_template_kwargs.enable_thinking": False, "chat_template_kwargs.unknown": "bad"}, caps)
+        self.assertEqual(result, {"chat_template_kwargs": {"enable_thinking": False}})
 
     def test_inputs_append_without_reordering_existing_widgets(self):
         schema = n.RMLLM050.INPUT_TYPES()
