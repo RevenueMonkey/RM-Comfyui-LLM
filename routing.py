@@ -9,7 +9,10 @@ def resolve_route(router, provider, hosting_provider="Auto", endpoint="Auto"):
     if not router:
         return provider, hosting_provider if provider == "OpenRouter" and hosting_provider != "Auto" else endpoint
     if router == "OpenRouter":
-        return "OpenRouter", hosting_provider or "Auto"
+        # Retain the old optional field for API/workflow compatibility.
+        if hosting_provider and hosting_provider != "Auto":
+            return "OpenRouter", hosting_provider
+        return "OpenRouter", "Auto" if provider in (None, "", "OpenRouter") else provider
     if router != "Direct":
         raise RMError("Select Direct or OpenRouter for router.")
     if provider == "OpenRouter":
